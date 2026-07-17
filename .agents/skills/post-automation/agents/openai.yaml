@@ -1,0 +1,4 @@
+interface:
+  display_name: "Post Automation"
+  short_description: "Work on the Apps Script X posting automation project."
+  default_prompt: "Use the post-automation skill to inspect or update the Google Sheets driven X posting automation."
