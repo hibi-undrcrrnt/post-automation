@@ -2,7 +2,7 @@
 // 定数
 // ====================
 const SPREADSHEET_ID = '1tv3WyINPLComoybseAXIu-SOJ98DQ2C0NbCxieQEW3c';
-const SHEET_NAME = 'Sheet1';
+const SHEET_NAME = 'config';
 
 // スクリプトプロパティから取得
 function getProps_() {
@@ -262,53 +262,196 @@ function postTweet_(text, mediaIds, props) {
 // ====================
 // メイン: スケジュール投稿チェック
 // ====================
-function checkAndPost() {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheets()[0];
-  const data = sheet.getDataRange().getValues();
-  const now = new Date();
+const POST_TARGET_COLUMNS = [
+  { index: 6, header: 'x_post', label: 'X' },
+  { index: 7, header: 'instagram_post', label: 'Instagram' },
+  { index: 8, header: 'instagram_stories', label: 'Stories' },
+];
+const ERROR_LOG_COLUMN = 10;
+const ERROR_LOG_HEADER = 'error_log';
+
+function isPostTargetEnabled_(value) {
+  return value === true || String(value).trim().toUpperCase() === 'TRUE';
+}
+
+function validatePostTargetColumns_(headers) {
+  const invalidColumns = POST_TARGET_COLUMNS.filter(
+    target => headers[target.index] !== target.header
+  );
+
+  if (invalidColumns.length > 0) {
+    throw new Error(
+      '投稿形式の列見出しが一致しません。' +
+      ' G列=x_post、H列=instagram_post、I列=instagram_stories にしてください。'
+    );
+  }
+}
+
+function getEnabledPostTargets_(row) {
+  return POST_TARGET_COLUMNS.filter(
+    target => isPostTargetEnabled_(row[target.index])
+  );
+}
+
+function ensureErrorLogColumn_(sheet) {
+  if (sheet.getMaxColumns() < ERROR_LOG_COLUMN) {
+    sheet.insertColumnsAfter(
+      sheet.getMaxColumns(),
+      ERROR_LOG_COLUMN - sheet.getMaxColumns()
+    );
+  }
+
+  const headerCell = sheet.getRange(1, ERROR_LOG_COLUMN);
+  const currentHeader = String(headerCell.getValue() || '').trim();
+
+  if (!currentHeader) {
+    headerCell.setValue(ERROR_LOG_HEADER);
+  } else if (currentHeader !== ERROR_LOG_HEADER) {
+    throw new Error(
+      'J列の見出しは「' + ERROR_LOG_HEADER + '」にしてください。'
+    );
+  }
+}
+
+function buildPostErrorLog_(rowNumber, error) {
+  const timestamp = Utilities.formatDate(
+    new Date(),
+    Session.getScriptTimeZone(),
+    'yyyy-MM-dd HH:mm:ss'
+  );
+  const errorName =
+    error && error.name ? String(error.name) : 'Error';
+  const errorMessage =
+    error && error.message ? String(error.message) : String(error);
+
+  return (
+    '[' + timestamp + '] ' +
+    'Row ' + rowNumber + ' / ' +
+    errorName + ': ' + errorMessage
+  );
+}
+
+function postToX_(text, image, video) {
   const props = getProps_();
+  const mediaIds = [];
+
+  if (image) {
+    const blob = getFileFromDriveUrl_(image);
+    mediaIds.push(uploadMedia_(blob, props));
+  }
+
+  if (video) {
+    const blob = getFileFromDriveUrl_(video);
+    mediaIds.push(uploadVideoMedia_(blob, props));
+  }
+
+  return postTweet_(text, mediaIds, props);
+}
+
+function postRowToEnabledTargets_(row, rowNumber) {
+  const text = row[1];
+  const image = row[2];
+  const video = row[3];
+  const enabledTargets = getEnabledPostTargets_(row);
+  const completedTargets = [];
+
+  enabledTargets.forEach(target => {
+    const mediaLabel = video
+      ? 'D列動画'
+      : (image ? 'C列画像' : 'メディアなし');
+
+    try {
+      if (target.header === 'x_post') {
+        postToX_(text, image, video);
+      } else if (target.header === 'instagram_post') {
+        if (video) {
+          postInstagramVideoByUrl(video, text);
+        } else if (image) {
+          postInstagramImageByUrl(image, text);
+        } else {
+          throw new Error(
+            'Instagram投稿用のC列画像またはD列動画がありません。'
+          );
+        }
+      } else if (target.header === 'instagram_stories') {
+        if (video) {
+          postInstagramVideoStoryByUrl(video);
+        } else if (image) {
+          postInstagramImageStoryByUrl(image);
+        } else {
+          throw new Error(
+            'Stories投稿用のC列画像またはD列動画がありません。'
+          );
+        }
+      }
+    } catch (e) {
+      throw new Error(
+        target.label + ' / ' + mediaLabel +
+        (
+          completedTargets.length > 0
+            ? ' / 完了済み=' + completedTargets.join(',')
+            : ''
+        ) +
+        ': ' + e.message
+      );
+    }
+
+    completedTargets.push(target.label);
+  });
+
+  return completedTargets;
+}
+
+function checkAndPost() {
+  const sheet = SpreadsheetApp
+    .openById(SPREADSHEET_ID)
+    .getSheetByName(SHEET_NAME);
+  if (!sheet) {
+    throw new Error('シート「' + SHEET_NAME + '」が見つかりません。');
+  }
+
+  ensureErrorLogColumn_(sheet);
+
+  const data = sheet.getDataRange().getValues();
+  if (data.length === 0) return;
+
+  validatePostTargetColumns_(data[0]);
+
+  const now = new Date();
 
   // ヘッダー行をスキップ (row 0)
   for (let i = 1; i < data.length; i++) {
     const datetime = data[i][0]; // A列: datetime
-    const text = data[i][1];     // B列: text
-    const image = data[i][2];    // C列: image
-    const video = data[i][3];    // D列: video
     const status = data[i][4];   // E列: status
+    const enabledTargets = getEnabledPostTargets_(data[i]);
 
-    // 空行 or 投稿済みはスキップ
-    if (!datetime || status === 'posted' || status === 'error') continue;
+    // 空行、投稿形式未選択、投稿済み、エラー行はスキップ
+    if (
+      !datetime ||
+      enabledTargets.length === 0 ||
+      status === 'posted' ||
+      status === 'error'
+    ) continue;
 
     const postTime = new Date(datetime);
     if (postTime > now) continue; // まだ時間じゃない
 
     try {
-      const mediaIds = [];
-
-      // 画像アップロード
-      if (image) {
-        const blob = getFileFromDriveUrl_(image);
-        const mediaId = uploadMedia_(blob, props);
-        mediaIds.push(mediaId);
-      }
-
-      // 動画アップロード
-      if (video) {
-        const blob = getFileFromDriveUrl_(video);
-        const mediaId = uploadVideoMedia_(blob, props);
-        mediaIds.push(mediaId);
-      }
-
-      // ツイート投稿
-      postTweet_(text, mediaIds, props);
+      const completedTargets = postRowToEnabledTargets_(data[i], i + 1);
+      Logger.log(
+        'Row ' + (i + 1) + ' posted: ' + completedTargets.join(', ')
+      );
 
       // ステータス更新
       sheet.getRange(i + 1, 5).setValue('posted');
       sheet.getRange(i + 1, 6).setValue(new Date());
+      sheet.getRange(i + 1, ERROR_LOG_COLUMN).clearContent();
     } catch (e) {
-      Logger.log('Row ' + (i + 1) + ' error: ' + e.message);
+      const errorLog = buildPostErrorLog_(i + 1, e);
+      Logger.log(errorLog);
       sheet.getRange(i + 1, 5).setValue('error');
       sheet.getRange(i + 1, 6).setValue(e.message);
+      sheet.getRange(i + 1, ERROR_LOG_COLUMN).setValue(errorLog);
     }
   }
 }
