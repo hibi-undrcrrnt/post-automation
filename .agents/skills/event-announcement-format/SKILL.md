@@ -1,6 +1,6 @@
 ---
 name: event-announcement-format
-description: Convert raw Japanese or English live-event information, booking emails, venue messages, flyers, ticket pages, or copied SNS posts into concise X/Twitter-ready event announcement copy. Use when Codex must extract and normalize event title, date, venue, open/start times, prices, performers/speakers/lineup, ticket or reservation facts, and public handles, with safe web verification and sub-agent audit for output verification.
+description: Convert raw Japanese or English live-event information, booking emails, venue messages, flyers, ticket pages, or copied SNS posts into concise X/Twitter-ready event announcement copy. Use when Codex must extract and normalize event title, date, venue, open/start times, prices, performers/speakers/lineup, ticket or reservation facts, and public handles, including multi-step SNS verification, disclosed best-candidate handles, and sub-agent audit.
 ---
 
 # Event Announcement Format
@@ -38,21 +38,39 @@ For non-music events, adapt labels to the source, for example `登壇:`, `出店
 1. Parse the source material into facts: title, date, venue, open/start, ticket prices, drink charge, performers/speakers/lineup, ticket/reservation URL, announcement embargo, and uncertainty notes.
 2. Identify confidentiality. If the source is private, embargoed, or pre-announcement, do not search unpublished event-specific facts on the web. Search only already-public facts such as public artist handles, venue official names, or facts the user explicitly asks to verify.
 3. Drop non-public boilerplate: greetings, signatures, internal coordination, file-transfer links, and apology/polite text.
-4. Normalize only facts present in the source or verified through safe public search. Do not invent titles, venues, handles, prices, or lineup order.
-5. Use web search when public facts are missing or ambiguous and searching will not expose private event details. Prefer current official artist/venue websites, verified SNS profiles, official event pages, ticket pages, and venue schedules. Avoid stale posts and aggregators unless no better source exists.
+4. Normalize only facts present in the source or supported through safe public search. Do not invent titles, venues, handles, prices, or lineup order.
+5. Verify an X handle for every participant before drafting, unless the source or a current trusted cache already supplies one. Follow the Handle Verification Procedure below; do not stop at an inconclusive search-results page when an artist, distributor, label, ticket, or venue page can be opened and its outbound SNS links inspected.
 6. Draft the announcement in the requested or default format.
 7. Run sub-agent audit when sub-agents are available. Pass the raw input, candidate output, source notes, and the currently loaded skill; ask for grounded findings, not stylistic rewriting.
-8. Apply audit findings that are clearly grounded in the input or reliable public sources. If a fact remains uncertain, omit it or mark it as `TBA` only when that is the source value.
-9. Final response should normally contain only the announcement block. Add a short note only when facts were unresolved, omitted, changed after audit, or sourced only from web verification.
+8. Apply audit findings that are clearly grounded in the input or reliable public sources. For uncertain handles, use the best supported candidate in the announcement and disclose the concern and candidate URL outside the block. Omit a handle only when no identity-linked candidate exists. For non-handle facts, omit unresolved values or mark them as `TBA` only when that is the source value.
+9. Final response should normally contain only the announcement block. Add a short note when a handle is a candidate rather than verified, a fact was unresolved or omitted, or a material value changed after audit. Routine verified web sourcing needs no note.
 
 ## Web Search Rules
 
 - Use narrow queries that do not leak private event details when the source is not public. For handles, search `<artist name> X`, `<artist name> official`, or the artist website.
 - Use full event queries such as `<event title> <venue> <date>` only when the event is already public or the user explicitly asks to verify public listings.
-- Use web search to verify handles; never infer handles from names.
-- If multiple handles conflict, prefer the account linked from an official site or current official event/venue page. If still ambiguous, omit the handle.
-- Keep source notes outside the announcement block when using web-only facts: source type, source URL if available, and whether the fact was missing from the raw input.
+- Use web search to verify handles; never derive a handle only from an artist name.
+- Inspect the destination of SNS links on official artist sites and reputable artist-specific pages such as label, distributor, TuneCore/LinkCore, current ticket, venue, or music-press profiles. A direct outbound link is stronger evidence than a matching search snippet.
+- Cross-check identity with at least one relevant signal when the linking page is not artist-controlled: releases, members, location, biography, official site, or current posts that name the act.
+- If multiple handles conflict, prefer the account linked from an official artist site, then an artist-specific distributor/label profile, then a current official event/venue page. Treat the best remaining identity-linked account as a candidate rather than dropping it.
+- Keep source notes for each candidate handle: account URL, supporting page URL when available, evidence, and concern. Verified handles need internal source notes but do not require user-facing citations.
 - Do not include source links in the announcement block unless the user requests ticket/reservation links.
+
+## Handle Verification Procedure
+
+Classify each participant handle before drafting:
+
+1. `verified`: supplied by the source, present in a current trusted cache, or reached through a direct SNS link on an official or high-confidence artist-specific page.
+2. `candidate`: not fully verified, but public evidence links the account to the same act through releases, members, location, biography, or current event posts.
+3. `not found`: no account has evidence tying it to the act.
+
+For `verified`, add the handle normally. For `candidate`, add the best supported handle to the announcement and append a concise note after the block:
+
+```text
+確認事項: <artist> の @<handle> は有力候補ですが、<concern>。候補URL: <account-or-supporting-URL>
+```
+
+For `not found`, omit the handle and state that no identity-linked candidate was found only when this affects the requested deliverable. Never tag a same-name account with no evidence linking it to the participant.
 
 ## Normalization Rules
 
@@ -67,10 +85,11 @@ For non-music events, adapt labels to the source, for example `登壇:`, `出店
 
 ## Handle Rules
 
-- Add handles from `references/artist-handles.md`, source text, or web-verified official profiles.
-- Format known handles as `<artist> ( @handle )`.
-- If a handle is unknown or ambiguous, output only `<artist>`.
-- Do not create approximate handles from artist names.
+- Add verified handles from `references/artist-handles.md`, source text, or web-verified official profiles.
+- Add the best supported candidate handle when full verification is unavailable, and always disclose its concern and URL outside the announcement block.
+- Format verified and candidate handles as `<artist> ( @handle )`.
+- If no identity-linked candidate exists, output only `<artist>`.
+- Do not create approximate handles from artist names or attach unsupported same-name accounts.
 - Update `references/artist-handles.md` only when the user asks to persist a new mapping or the current task is explicitly to maintain the skill.
 
 ## Sub-Agent Audit Requirement
@@ -78,7 +97,7 @@ For non-music events, adapt labels to the source, for example `登壇:`, `出店
 When sub-agent tools are available, audit every non-trivial conversion before final output. Use a prompt shaped like:
 
 ```text
-Use the currently loaded event-announcement-format skill and references to audit this conversion. Check whether every output fact is grounded in the raw input or a reliable public source, whether any source facts were incorrectly omitted, and whether unknown handles were invented. For each issue, return: severity, finding type (unsupported/conflicting/omitted/style), raw-input evidence or URL/source, and suggested correction. Return a corrected block only if needed.
+Use the currently loaded event-announcement-format skill and references to audit this conversion. Check whether every output fact is grounded in the raw input or a reliable public source, whether each participant's handle was researched through available artist-specific pages, whether candidate handles have identity-linked evidence and a user-facing concern plus URL, and whether any source facts were incorrectly omitted. For each issue, return: severity, finding type (unsupported/conflicting/omitted/style), raw-input evidence or URL/source, and suggested correction. Return a corrected block only if needed.
 ```
 
 Do not leak your intended answer as ground truth. Treat the sub-agent as an independent reviewer of the raw input, source notes, and candidate output.
@@ -90,4 +109,5 @@ If sub-agent tools are unavailable, run the same checklist locally and state onl
 - Do not add hashtags, emojis, sales copy, flyer URLs, ticket URLs, or reservation URLs unless requested.
 - Keep the block scannable and short for X/Twitter.
 - Do not label the answer as `output:`.
-- Do not include audit notes when the conversion is clean and the user asked only for converted text.
+- Do not include audit notes when the conversion is clean and all included handles are verified.
+- Put candidate-handle concerns and URLs after the announcement block, never inside it.

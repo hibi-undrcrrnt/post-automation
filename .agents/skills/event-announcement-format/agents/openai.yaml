@@ -1,4 +1,4 @@
 interface:
   display_name: "Event Announcement Format"
   short_description: "Format event details for X posts."
-  default_prompt: "Use the event-announcement-format skill to convert raw event details into verified announcement copy."
+  default_prompt: "Use $event-announcement-format to convert raw event details into announcement copy with verified or clearly disclosed candidate SNS handles."
