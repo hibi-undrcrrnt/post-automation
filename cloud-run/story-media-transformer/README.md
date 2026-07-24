@@ -207,6 +207,9 @@ Cloud RunとIAMの確認が完了するまでは`legacy`にしておく。
 `postPreparedInstagramStoryFromSheetRow(rowNumber)`を繰り返し実行する。
 初回は変換ジョブを開始し、変換完了後の実行でStoriesを投稿する。
 
+`prepareInstagramStoryFromSheetRow(rowNumber)`は投稿を行わず、
+過去・将来の予約日時ではなく実行時刻を基準に変換だけを検証する。
+
 ## Cloud Run Jobの実行時環境変数
 
 Apps Scriptが実行ごとに次を上書きする。

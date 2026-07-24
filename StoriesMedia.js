@@ -917,7 +917,9 @@ function prepareInstagramStoryFromSheetRow(rowNumber) {
     job,
     mediaUrl,
     mediaKind,
-    scheduledAt,
+    // 投稿を伴わない手動検証では、過去行の遅延上限や
+    // 遠い将来の署名URL期限に影響されないよう現在時刻を使う。
+    new Date(),
     Date.now() + EXECUTION_BUDGET_MS,
     config
   );
