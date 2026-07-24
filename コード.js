@@ -883,12 +883,16 @@ function createPostJob_(row, rowNumber, enabledTargets) {
     retryCount: 0,
     retryAfterAt: null,
     lastTransientError: null,
+    preparationOnly: false,
     completedTargets: [],
     x: {
       imageMediaId: null,
       video: null,
       postState: 'not_started',
       tweetId: null,
+    },
+    instagram: {
+      story: null,
     },
   };
 }
@@ -920,10 +924,24 @@ function getOrCreatePostJob_(row, rowNumber, enabledTargets, status) {
 
   const currentFingerprint = buildRowFingerprint_(row, enabledTargets);
   if (job.sourceFingerprint !== currentFingerprint) {
+    if (
+      job.preparationOnly === true &&
+      (job.completedTargets || []).length === 0 &&
+      job.x &&
+      job.x.postState === 'not_started'
+    ) {
+      job = createPostJob_(row, rowNumber, enabledTargets);
+      savePostJob_(job);
+      return job;
+    }
     throw new Error(
       '投稿途中で対象行の日時・本文・メディア・投稿先が変更されました。' +
       '自動再開せず手動確認してください。'
     );
+  }
+  if (job.preparationOnly === true) {
+    job.preparationOnly = false;
+    savePostJob_(job);
   }
   return job;
 }
@@ -1049,7 +1067,15 @@ function processXTarget_(job, text, image, video, deadlineMs) {
   return { completed: true };
 }
 
-function processInstagramTarget_(target, text, image, video) {
+function processInstagramTarget_(
+  target,
+  text,
+  image,
+  video,
+  job,
+  scheduledAt,
+  deadlineMs
+) {
   if (target.header === 'instagram_post') {
     if (video) {
       postInstagramVideoByUrl(video, text);
@@ -1060,20 +1086,70 @@ function processInstagramTarget_(target, text, image, video) {
         'Instagram投稿用のC列画像またはD列動画がありません。'
       );
     }
-    return;
+    return { completed: true };
   }
 
   if (target.header === 'instagram_stories') {
-    if (video) {
-      postInstagramVideoStoryByUrl(video);
-    } else if (image) {
-      postInstagramImageStoryByUrl(image);
-    } else {
+    if (!video && !image) {
       throw new Error(
         'Stories投稿用のC列画像またはD列動画がありません。'
       );
     }
+
+    const mediaKind = video ? 'video' : 'image';
+    const mediaUrl = video || image;
+    const preparation = advanceInstagramStoryPreparation_(
+      job,
+      mediaUrl,
+      mediaKind,
+      scheduledAt,
+      deadlineMs
+    );
+    if (!preparation.completed) return preparation;
+
+    if (!preparation.alreadyPublished) {
+      const storyState =
+        job.instagram && job.instagram.story && preparation.transformed
+          ? job.instagram.story
+          : null;
+      if (storyState) {
+        storyState.phase = 'publishing';
+        savePostJob_(job);
+      }
+      try {
+        if (mediaKind === 'video') {
+          postInstagramVideoStoryByUrl(preparation.mediaUrl);
+        } else {
+          postInstagramImageStoryByUrl(preparation.mediaUrl);
+        }
+      } catch (error) {
+        if (storyState) {
+          const ambiguous =
+            error &&
+            error.instagramPublishAttempt === true &&
+            (
+              error.transportError === true ||
+              error.ambiguousResult === true ||
+              error.retryable === true
+            );
+          storyState.phase = ambiguous ? 'unknown' : 'ready';
+          storyState.lastError =
+            error && error.message ? error.message : String(error);
+          savePostJob_(job);
+          if (ambiguous) error.retryable = false;
+        }
+        throw error;
+      }
+      if (storyState) {
+        storyState.phase = 'published';
+        storyState.lastError = '';
+        savePostJob_(job);
+      }
+    }
+    return { completed: true };
   }
+
+  return { completed: true };
 }
 
 function postRowToEnabledTargets_(
@@ -1135,7 +1211,22 @@ function postRowToEnabledTargets_(
             job: job,
           };
         }
-        processInstagramTarget_(target, text, image, video);
+        const instagramResult = processInstagramTarget_(
+          target,
+          text,
+          image,
+          video,
+          job,
+          row[0],
+          deadlineMs
+        );
+        if (!instagramResult.completed) {
+          return {
+            completed: false,
+            status: instagramResult.status,
+            job: job,
+          };
+        }
       }
     } catch (e) {
       throw wrapTargetError_(e, target, mediaLabel, job);
@@ -1152,6 +1243,25 @@ function postRowToEnabledTargets_(
 }
 
 function getPendingStatus_(job) {
+  const story = job.instagram && job.instagram.story;
+  if (
+    story &&
+    (
+      story.phase === 'submitted' ||
+      story.phase === 'processing'
+    )
+  ) {
+    return POST_STATUS.PROCESSING;
+  }
+  if (
+    story &&
+    (
+      story.phase === 'publishing' ||
+      story.phase === 'published'
+    )
+  ) {
+    return POST_STATUS.POSTING;
+  }
   if (
     job.x &&
     job.x.video &&
@@ -1183,6 +1293,21 @@ function buildProgressMessage_(job, status) {
       '一時エラーの再試行待ち (' +
       job.retryCount + '/' + MAX_TRANSIENT_RETRIES +
       ', 次回=' + retryAt + ')'
+    );
+  }
+
+  const story = job.instagram && job.instagram.story;
+  if (
+    story &&
+    status === POST_STATUS.PROCESSING &&
+    (
+      story.phase === 'submitted' ||
+      story.phase === 'processing'
+    )
+  ) {
+    return (
+      'Storiesメディア変換中: phase=' + story.phase +
+      ', attempt=' + story.attempts
     );
   }
 
@@ -1345,7 +1470,17 @@ function checkAndPostLocked_() {
       const errorLog = buildPostErrorLog_(i + 1, e);
       Logger.log(errorLog);
       const finalStatus =
-        job && job.x && job.x.postState === 'unknown'
+        (
+          job &&
+          (
+            (job.x && job.x.postState === 'unknown') ||
+            (
+              job.instagram &&
+              job.instagram.story &&
+              job.instagram.story.phase === 'unknown'
+            )
+          )
+        )
           ? POST_STATUS.UNKNOWN
           : POST_STATUS.ERROR;
       sheet.getRange(i + 1, 5).setValue(finalStatus);
@@ -1359,8 +1494,10 @@ function checkAndPostLocked_() {
 // トリガー設定
 // ====================
 function createTrigger() {
-  // 既存トリガー削除
-  ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
+  // checkAndPostの既存トリガーだけを置き換える
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'checkAndPost')
+    .forEach(t => ScriptApp.deleteTrigger(t));
   // 10分おきに実行
   ScriptApp.newTrigger('checkAndPost')
     .timeBased()
@@ -1370,8 +1507,10 @@ function createTrigger() {
 }
 
 function deleteTrigger() {
-  ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
-  Logger.log('All triggers deleted');
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'checkAndPost')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  Logger.log('checkAndPost triggers deleted');
 }
 
 // ====================
@@ -1415,13 +1554,24 @@ function retryPostRow(rowNumber) {
 
   if (status === POST_STATUS.UNKNOWN) {
     throw new Error(
-      'この行は投稿結果が不明です。X上の投稿有無を確認してから、' +
+      'この行は投稿結果が不明です。XまたはInstagram上の投稿有無を確認してから、' +
       '保存ジョブを手動処理してください。'
     );
   }
   if (job && job.x && job.x.postState === 'unknown') {
     throw new Error(
       '保存ジョブのX投稿結果が不明です。二重投稿防止のため再試行できません。'
+    );
+  }
+  if (
+    job &&
+    job.instagram &&
+    job.instagram.story &&
+    job.instagram.story.phase === 'unknown'
+  ) {
+    throw new Error(
+      '保存ジョブのStories投稿結果が不明です。' +
+      '二重投稿防止のため再試行できません。'
     );
   }
   if (status !== POST_STATUS.ERROR) {
@@ -1471,6 +1621,16 @@ function resetPostRow(rowNumber) {
           job.x.postState === 'posting' ||
           job.x.postState === 'posted' ||
           job.x.postState === 'unknown'
+        )
+      )
+      ||
+      (
+        job.instagram &&
+        job.instagram.story &&
+        (
+          job.instagram.story.phase === 'publishing' ||
+          job.instagram.story.phase === 'published' ||
+          job.instagram.story.phase === 'unknown'
         )
       )
     )

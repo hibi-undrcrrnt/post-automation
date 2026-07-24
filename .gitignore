@@ -1,3 +1,5 @@
 .env
 node_modules/
 .clasp.json
+__pycache__/
+*.py[cod]

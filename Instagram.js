@@ -55,7 +55,12 @@ function instagramRequest_(path, method, params, config) {
     options.payload = requestParams;
   }
 
-  const response = UrlFetchApp.fetch(url, options);
+  const response = fetchWithContext_(
+    url,
+    options,
+    'Instagram API ' + path,
+    true
+  );
   const statusCode = response.getResponseCode();
   const responseText = response.getContentText();
   let result;
@@ -63,26 +68,37 @@ function instagramRequest_(path, method, params, config) {
   try {
     result = responseText ? JSON.parse(responseText) : {};
   } catch (e) {
-    throw new Error(
+    const parseError = new Error(
       'Instagram APIがJSON以外を返しました (' + statusCode + '): ' +
       responseText.slice(0, 500)
     );
+    parseError.retryable = false;
+    parseError.ambiguousResult =
+      statusCode >= 200 && statusCode < 300;
+    throw parseError;
   }
 
   if (statusCode < 200 || statusCode >= 300 || result.error) {
-    const error = result.error || {};
+    const apiError = result.error || {};
     const details = [
-      error.message || responseText || 'Unknown error',
-      error.type ? 'type=' + error.type : '',
-      error.code != null ? 'code=' + error.code : '',
-      error.error_subcode != null
-        ? 'subcode=' + error.error_subcode
+      apiError.message || responseText || 'Unknown error',
+      apiError.type ? 'type=' + apiError.type : '',
+      apiError.code != null ? 'code=' + apiError.code : '',
+      apiError.error_subcode != null
+        ? 'subcode=' + apiError.error_subcode
         : '',
-      error.fbtrace_id ? 'fbtrace_id=' + error.fbtrace_id : '',
+      apiError.fbtrace_id ? 'fbtrace_id=' + apiError.fbtrace_id : '',
     ].filter(Boolean).join(', ');
-    throw new Error(
+    const requestError = new Error(
       'Instagram API request failed (' + statusCode + '): ' + details
     );
+    requestError.httpStatus = statusCode;
+    requestError.retryable =
+      statusCode === 408 ||
+      statusCode === 425 ||
+      statusCode === 429 ||
+      statusCode >= 500;
+    throw requestError;
   }
 
   return result;
@@ -449,15 +465,25 @@ function waitForInstagramContainer_(containerId, config) {
 }
 
 function publishInstagramContainer_(containerId, config) {
-  const result = instagramRequest_(
-    'me/media_publish',
-    'post',
-    { creation_id: containerId },
-    config
-  );
+  let result;
+  try {
+    result = instagramRequest_(
+      'me/media_publish',
+      'post',
+      { creation_id: containerId },
+      config
+    );
+  } catch (error) {
+    error.instagramPublishAttempt = true;
+    throw error;
+  }
 
   if (!result.id) {
-    throw new Error('Instagram投稿IDを取得できませんでした。');
+    const error = new Error('Instagram投稿IDを取得できませんでした。');
+    error.instagramPublishAttempt = true;
+    error.ambiguousResult = true;
+    error.retryable = false;
+    throw error;
   }
   return result.id;
 }
@@ -681,6 +707,12 @@ function postInstagramImageStoryFromSheetRow(rowNumber) {
   const targetRow = Number(rowNumber);
   if (!Number.isInteger(targetRow) || targetRow < 2) {
     throw new Error('投稿対象の行番号は2以上の整数で指定してください。');
+  }
+  if (
+    typeof isStoriesTransformEnabled_ === 'function' &&
+    isStoriesTransformEnabled_()
+  ) {
+    return postPreparedInstagramStoryFromSheetRow(targetRow);
   }
 
   const sheet = SpreadsheetApp
