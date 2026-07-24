@@ -12,6 +12,7 @@ from transformer.core import (
     can_copy_without_transcoding,
     normalize_background_color,
     validate_output_probe,
+    validate_source_revision,
     validate_video_probe,
     video_filter,
 )
@@ -22,6 +23,30 @@ class CoreTest(unittest.TestCase):
         self.assertEqual(normalize_background_color("#A0b1C2"), "a0b1c2")
         with self.assertRaises(TransformError):
             normalize_background_color("black")
+
+    def test_source_revision_compares_rfc3339_instants(self):
+        validate_source_revision(
+            123,
+            "2026-07-23T02:38:26.676000Z",
+            "ABC123",
+            123,
+            "2026-07-23T11:38:26.676+09:00",
+            "abc123",
+        )
+
+    def test_source_revision_rejects_a_real_timestamp_change(self):
+        with self.assertRaisesRegex(
+            TransformError,
+            r"expected=.*actual=",
+        ):
+            validate_source_revision(
+                123,
+                "2026-07-23T02:38:26.677Z",
+                "",
+                123,
+                "2026-07-23T02:38:26.676Z",
+                "",
+            )
 
     def test_filter_preserves_aspect_ratio_and_pads(self):
         self.assertEqual(

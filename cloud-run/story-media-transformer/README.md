@@ -74,6 +74,10 @@ gcloud storage buckets create "gs://${BUCKET_NAME}" \
 
 gcloud storage buckets update "gs://${BUCKET_NAME}" \
   --lifecycle-file=lifecycle.json
+
+# 3日だけ保持する一時変換データのため、復元期間は設けない
+gcloud storage buckets update "gs://${BUCKET_NAME}" \
+  --clear-soft-delete
 ```
 
 ### 4. Cloud Runサービスアカウントへ権限を付与
@@ -167,7 +171,7 @@ Apps Scriptは標準Google Cloudプロジェクトへ切り替え、
 ## Apps Script Properties
 
 ```text
-STORY_TRANSFORM_ENABLED=true
+STORY_TRANSFORM_MODE=legacy
 STORY_TRANSFORM_PROJECT_ID=<PROJECT_ID>
 STORY_TRANSFORM_REGION=asia-northeast1
 STORY_TRANSFORM_JOB_NAME=story-media-transformer
@@ -177,15 +181,23 @@ STORY_TRANSFORM_LEAD_MINUTES=120
 STORY_TRANSFORM_MAX_DELAY_MINUTES=30
 ```
 
-`STORY_TRANSFORM_ENABLED`は、Cloud RunとIAMの確認が完了するまで
-`false`にしておく。
+`STORY_TRANSFORM_MODE`は次の3値を使用する。
+
+- `legacy`: 従来どおり未変換で投稿する
+- `enforce`: Storiesを必ず変換し、失敗時は投稿しない
+- `pause`: Stories投稿を停止し、予約時刻に到達した対象行を`error`にする
+
+Cloud RunとIAMの確認が完了するまでは`legacy`にしておく。
+緊急停止時は`false`へ戻さず`pause`へ変更する。
 
 設定後、Apps Scriptエディタから以下を順番に実行する。
 
 1. `checkStoriesTransformSetup()`
-2. `createStoriesTransformTrigger()`
-3. 横長画像のテスト予約
-4. 横長動画のテスト予約
+2. `prepareInstagramStoryFromSheetRow(rowNumber)`で変換だけを確認
+3. `STORY_TRANSFORM_MODE=enforce`へ変更
+4. `createStoriesTransformTrigger()`
+5. 横長画像のテスト予約
+6. 横長動画のテスト予約
 
 シート行を手動で進める場合は、
 `postPreparedInstagramStoryFromSheetRow(rowNumber)`を繰り返し実行する。

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,62 @@ SUPPORTED_VIDEO_MIME_TYPES = {
 
 class TransformError(RuntimeError):
     """A permanent input or transformation error."""
+
+
+def parse_rfc3339_utc(value: str, field_name: str) -> datetime:
+    raw_value = str(value or "").strip()
+    try:
+        parsed = datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise TransformError(
+            f"{field_name} is not a valid RFC 3339 timestamp: {raw_value}"
+        ) from error
+    if parsed.tzinfo is None:
+        raise TransformError(
+            f"{field_name} must include a timezone: {raw_value}"
+        )
+    return parsed.astimezone(timezone.utc)
+
+
+def validate_source_revision(
+    actual_size: int,
+    actual_modified_time: str,
+    actual_md5: str,
+    expected_size: int,
+    expected_modified_time: str,
+    expected_md5: str,
+) -> None:
+    if actual_size != expected_size:
+        raise TransformError(
+            "Drive input size changed after the transform was scheduled "
+            f"(expected={expected_size}, actual={actual_size})"
+        )
+
+    actual_time = parse_rfc3339_utc(
+        actual_modified_time,
+        "Drive input modifiedTime",
+    )
+    expected_time = parse_rfc3339_utc(
+        expected_modified_time,
+        "EXPECTED_SOURCE_MODIFIED_TIME",
+    )
+    if actual_time != expected_time:
+        raise TransformError(
+            "Drive input modifiedTime changed after the transform was "
+            "scheduled "
+            f"(expected={expected_modified_time}, "
+            f"actual={actual_modified_time})"
+        )
+
+    normalized_actual_md5 = str(actual_md5 or "").strip().lower()
+    normalized_expected_md5 = str(expected_md5 or "").strip().lower()
+    if (
+        normalized_expected_md5
+        and normalized_actual_md5 != normalized_expected_md5
+    ):
+        raise TransformError(
+            "Drive input checksum changed after the transform was scheduled"
+        )
 
 
 def normalize_background_color(value: str) -> str:

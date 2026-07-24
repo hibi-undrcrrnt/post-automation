@@ -30,6 +30,7 @@ from transformer.core import (
     run_command,
     validate_input_mime_type,
     validate_output_probe,
+    validate_source_revision,
     validate_video_probe,
 )
 
@@ -126,18 +127,14 @@ def download_drive_file(
             f"Drive input size must be between 1 and {MAX_INPUT_BYTES} bytes: "
             f"{actual_size}"
         )
-    if actual_size != expected_size:
-        raise TransformError(
-            "Drive input size changed after the transform was scheduled"
-        )
-    if actual_modified_time != expected_modified_time:
-        raise TransformError(
-            "Drive input modifiedTime changed after the transform was scheduled"
-        )
-    if expected_md5 and actual_md5 != expected_md5:
-        raise TransformError(
-            "Drive input checksum changed after the transform was scheduled"
-        )
+    validate_source_revision(
+        actual_size,
+        actual_modified_time,
+        actual_md5,
+        expected_size,
+        expected_modified_time,
+        expected_md5,
+    )
 
     request = drive.files().get_media(
         fileId=file_id,

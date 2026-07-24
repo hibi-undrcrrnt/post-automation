@@ -709,10 +709,15 @@ function postInstagramImageStoryFromSheetRow(rowNumber) {
     throw new Error('投稿対象の行番号は2以上の整数で指定してください。');
   }
   if (
-    typeof isStoriesTransformEnabled_ === 'function' &&
-    isStoriesTransformEnabled_()
+    typeof getStoriesTransformConfig_ === 'function'
   ) {
-    return postPreparedInstagramStoryFromSheetRow(targetRow);
+    const storyConfig = getStoriesTransformConfig_();
+    if (storyConfig.mode === 'pause') {
+      throw createStoriesPausedError_();
+    }
+    if (storyConfig.enabled) {
+      return postPreparedInstagramStoryFromSheetRow(targetRow);
+    }
   }
 
   const sheet = SpreadsheetApp

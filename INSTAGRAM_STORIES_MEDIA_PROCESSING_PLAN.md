@@ -42,11 +42,37 @@ Cloudinaryを利用する場合は、後述の「Cloudinary代替案」の条件
 | Apps Script事前準備トリガー | 実装済み |
 | Apps Script状態保存・再開 | 実装済み |
 | 二重投稿防止用`published` / `unknown`管理 | 実装済み |
+| `legacy` / `enforce` / `pause`安全切替 | 実装済み |
+| 投稿なしの1行変換確認 | 実装済み |
 | 単体テスト | 実装済み |
-| GCPリソース作成 | 未実施 |
-| Cloud Runデプロイ | 未実施 |
+| GCPリソース作成 | `hibi-452314`へ作成済み |
+| Cloud Runデプロイ | 初回デプロイ済み・実ファイル検証中 |
 | Apps Scriptデプロイ | 未実施 |
 | Instagram実投稿テスト | 未実施 |
+
+### 2.2 GCP構築状況
+
+2026-07-25時点で、`hibi-452314`へ次を構築済み。
+
+- リージョン: `asia-northeast1`
+- Artifact Registry: `story-media`
+- Cloud Run Job: `story-media-transformer`
+- 専用サービスアカウント: `story-media-transformer`
+- 非公開GCSバケット: `hibi-452314-story-media`
+- GCS Lifecycle: 3日後に削除
+- GCS soft delete: 一時変換データのため無効
+- Cloud Run再試行: 最大2回
+- Cloud Run実行上限: 15分
+
+Apps Scriptの実行ユーザーには、Jobの実行・参照と対象バケットの
+参照に必要なIAMロールを付与済み。
+
+実ファイル検証用の画像・動画は、フォルダ全体ではなく各ファイルだけを
+サービスアカウントへ閲覧共有している。本番運用では素材ごとの共有漏れを
+防ぐため、専用入力フォルダを作成してサービスアカウントへ閲覧共有する。
+
+Apps Scriptはまだ本番へデプロイしておらず、
+`STORY_TRANSFORM_MODE=legacy`から検証を開始する。
 
 主な実装ファイルは以下。
 
@@ -227,6 +253,19 @@ instagram.story.lastError
 | `error` | 行を`error`にして理由を記録 |
 
 変換が未完了の場合、未加工の横長素材は投稿しない。
+
+### 7.3 運用モード
+
+`STORY_TRANSFORM_MODE`で次を切り替える。
+
+| モード | 動作 |
+| --- | --- |
+| `legacy` | 従来どおり未変換で投稿 |
+| `enforce` | 変換済み素材だけを投稿し、変換失敗時は投稿しない |
+| `pause` | Stories投稿を停止し、予約時刻に到達した対象行を`error`にする |
+
+障害時に`legacy`へ戻すと未加工素材が投稿されるため、
+緊急停止には`pause`を使用する。
 
 ## 8. 再試行と障害対応
 

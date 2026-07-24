@@ -373,3 +373,19 @@ test('異なるDriveリビジョンのmanifestを拒否する', () => {
     /チェックサム/
   );
 });
+
+test('pauseモードでは未加工素材を投稿経路へ返さない', () => {
+  const job = newJob();
+  assert.throws(
+    () => context.advanceInstagramStoryPreparation_(
+      job,
+      'drive-file-123',
+      'video',
+      new Date(),
+      Date.now() + 60000,
+      { enabled: false, mode: 'pause' }
+    ),
+    /停止中/
+  );
+  assert.equal(job.instagram.story, null);
+});

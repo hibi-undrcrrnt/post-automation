@@ -28,19 +28,34 @@ function parseStoryTransformInteger_(value, fallback, minimum, maximum, name) {
   return number;
 }
 
-function getStoriesTransformConfig_() {
+function getStoriesTransformConfig_(requireInfrastructureConfig) {
   const props = PropertiesService.getScriptProperties();
-  const enabled =
+  const legacyEnabled =
     String(props.getProperty('STORY_TRANSFORM_ENABLED') || '')
       .trim()
       .toLowerCase() === 'true';
+  const configuredMode = String(
+    props.getProperty('STORY_TRANSFORM_MODE') || ''
+  ).trim().toLowerCase();
+  const mode = configuredMode || (
+    legacyEnabled ? 'enforce' : 'legacy'
+  );
+  if (['legacy', 'enforce', 'pause'].indexOf(mode) === -1) {
+    throw new Error(
+      'STORY_TRANSFORM_MODEはlegacy、enforce、pauseのいずれかで指定してください。'
+    );
+  }
 
-  if (!enabled) {
-    return { enabled: false };
+  if (mode !== 'enforce' && !requireInfrastructureConfig) {
+    return {
+      enabled: false,
+      mode: mode,
+    };
   }
 
   const config = {
-    enabled: true,
+    enabled: mode === 'enforce',
+    mode: mode,
     projectId: String(
       props.getProperty('STORY_TRANSFORM_PROJECT_ID') || ''
     ).trim(),
@@ -107,6 +122,14 @@ function getStoriesTransformConfig_() {
 
 function isStoriesTransformEnabled_() {
   return getStoriesTransformConfig_().enabled;
+}
+
+function createStoriesPausedError_() {
+  const error = new Error(
+    'Instagram Stories投稿はSTORY_TRANSFORM_MODE=pauseにより停止中です。'
+  );
+  error.retryable = false;
+  return error;
 }
 
 function getStoryDriveMetadata_(mediaUrl, mediaKind) {
@@ -497,6 +520,9 @@ function advanceInstagramStoryPreparation_(
   providedConfig
 ) {
   const config = providedConfig || getStoriesTransformConfig_();
+  if (config.mode === 'pause') {
+    throw createStoriesPausedError_();
+  }
   if (!config.enabled) {
     return {
       completed: true,
@@ -675,7 +701,9 @@ function prepareStories() {
 function prepareStoriesLocked_() {
   const config = getStoriesTransformConfig_();
   if (!config.enabled) {
-    Logger.log('prepareStories skipped: STORY_TRANSFORM_ENABLED is false.');
+    Logger.log(
+      'prepareStories skipped: STORY_TRANSFORM_MODE=' + config.mode
+    );
     return;
   }
 
@@ -755,7 +783,7 @@ function postPreparedInstagramStoryFromSheetRow(rowNumber) {
   const config = getStoriesTransformConfig_();
   if (!config.enabled) {
     throw new Error(
-      'STORY_TRANSFORM_ENABLEDをtrueにしてから実行してください。'
+      'STORY_TRANSFORM_MODE=enforceにしてから実行してください。'
     );
   }
 
@@ -811,6 +839,65 @@ function postPreparedInstagramStoryFromSheetRow(rowNumber) {
   };
 }
 
+function prepareInstagramStoryFromSheetRow(rowNumber) {
+  const targetRow = validateDataRowNumber_(rowNumber);
+  const config = getStoriesTransformConfig_(true);
+  config.enabled = true;
+  config.mode = 'enforce';
+
+  const sheet = SpreadsheetApp
+    .openById(SPREADSHEET_ID)
+    .getSheetByName(SHEET_NAME);
+  if (!sheet) {
+    throw new Error('シート「' + SHEET_NAME + '」が見つかりません。');
+  }
+  const row = sheet.getRange(targetRow, 1, 1, 9).getValues()[0];
+  if (!isPostTargetEnabled_(row[8])) {
+    throw new Error(
+      'Row ' + targetRow + 'はinstagram_storiesが有効ではありません。'
+    );
+  }
+
+  const scheduledAt = new Date(row[0]);
+  if (!row[0] || !Number.isFinite(scheduledAt.getTime())) {
+    throw new Error(
+      'Row ' + targetRow + 'のA列datetimeが有効ではありません。'
+    );
+  }
+  const image = String(row[2] || '').trim();
+  const video = String(row[3] || '').trim();
+  if (!image && !video) {
+    throw new Error(
+      'Row ' + targetRow + 'のC列画像またはD列動画がありません。'
+    );
+  }
+
+  const mediaKind = video ? 'video' : 'image';
+  const mediaUrl = video || image;
+  const enabledTargets = getEnabledPostTargets_(row);
+  const job = getOrCreateStoriesPreparationJob_(
+    row,
+    targetRow,
+    enabledTargets
+  );
+  const result = advanceInstagramStoryPreparation_(
+    job,
+    mediaUrl,
+    mediaKind,
+    scheduledAt,
+    Date.now() + EXECUTION_BUDGET_MS,
+    config
+  );
+
+  return {
+    rowNumber: targetRow,
+    completed: result.completed,
+    mediaKind: mediaKind,
+    phase: job.instagram.story.phase,
+    outputObject: job.instagram.story.outputObject || '',
+  };
+}
+
 function createStoriesTransformTrigger() {
   const exists = ScriptApp.getProjectTriggers().some(
     trigger => trigger.getHandlerFunction() === 'prepareStories'
@@ -834,13 +921,7 @@ function deleteStoriesTransformTrigger() {
 }
 
 function checkStoriesTransformSetup() {
-  const config = getStoriesTransformConfig_();
-  if (!config.enabled) {
-    return {
-      enabled: false,
-      message: 'STORY_TRANSFORM_ENABLEDがtrueではありません。',
-    };
-  }
+  const config = getStoriesTransformConfig_(true);
 
   const authorization = 'Bearer ' + ScriptApp.getOAuthToken();
   const jobResponse = fetchWithContext_(getStoryRunJobUrl_(config), {
@@ -867,7 +948,8 @@ function checkStoriesTransformSetup() {
   }
 
   return {
-    enabled: true,
+    enabled: config.enabled,
+    mode: config.mode,
     projectId: config.projectId,
     region: config.region,
     jobName: config.jobName,
