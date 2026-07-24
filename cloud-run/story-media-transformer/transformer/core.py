@@ -277,6 +277,11 @@ def build_video_command(
         "0:v:0",
         "-map",
         "0:a:0?",
+        "-map_metadata",
+        "-1",
+        "-map_chapters",
+        "-1",
+        "-dn",
         "-vf",
         video_filter(background_color),
         "-c:v",
@@ -318,6 +323,11 @@ def build_video_copy_command(
         "0:v:0",
         "-map",
         "0:a:0?",
+        "-map_metadata",
+        "-1",
+        "-map_chapters",
+        "-1",
+        "-dn",
         "-c",
         "copy",
         "-movflags",
@@ -348,6 +358,18 @@ def validate_output_probe(
 
     if media_kind == "video":
         validate_video_probe(probe)
+        unexpected_stream_types = sorted(
+            {
+                str(stream.get("codec_type") or "unknown")
+                for stream in probe.get("streams", [])
+                if stream.get("codec_type") not in {"video", "audio"}
+            }
+        )
+        if unexpected_stream_types:
+            raise TransformError(
+                "Output contains unsupported stream types: "
+                + ", ".join(unexpected_stream_types)
+            )
         if details["video_codec"] != "h264":
             raise TransformError(
                 f"Output video codec is {details['video_codec']}; expected h264"

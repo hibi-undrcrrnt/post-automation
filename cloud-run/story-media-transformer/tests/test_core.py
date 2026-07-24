@@ -78,6 +78,9 @@ class CoreTest(unittest.TestCase):
         self.assertIn("yuv420p", command)
         self.assertIn("aac", command)
         self.assertIn("+faststart", command)
+        self.assertIn("-map_metadata", command)
+        self.assertIn("-map_chapters", command)
+        self.assertIn("-dn", command)
 
     def test_video_copy_command_remuxes_without_quality_loss(self):
         command = build_video_copy_command(
@@ -86,6 +89,9 @@ class CoreTest(unittest.TestCase):
         )
         self.assertIn("copy", command)
         self.assertIn("+faststart", command)
+        self.assertIn("-map_metadata", command)
+        self.assertIn("-map_chapters", command)
+        self.assertIn("-dn", command)
 
     def test_rejects_video_over_sixty_seconds(self):
         with self.assertRaisesRegex(TransformError, "at most 60 seconds"):
@@ -125,6 +131,31 @@ class CoreTest(unittest.TestCase):
         self.assertEqual(details["width"], 1080)
         self.assertEqual(details["height"], 1920)
         self.assertEqual(details["audio_codec"], "aac")
+
+    def test_rejects_video_output_with_a_timecode_track(self):
+        with self.assertRaisesRegex(
+            TransformError,
+            "unsupported stream types: data",
+        ):
+            validate_output_probe(
+                {
+                    "format": {"duration": "30.0"},
+                    "streams": [
+                        {
+                            "codec_type": "video",
+                            "width": 1080,
+                            "height": 1920,
+                            "codec_name": "h264",
+                            "pix_fmt": "yuv420p",
+                        },
+                        {
+                            "codec_type": "data",
+                            "codec_tag_string": "tmcd",
+                        },
+                    ],
+                },
+                "video",
+            )
 
     def test_exact_story_mp4_can_be_copied_without_transcoding(self):
         probe = {

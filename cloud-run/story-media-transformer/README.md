@@ -8,6 +8,7 @@ Cloud Run Jobです。
 - Drive APIで非公開ファイルを取得
 - FFmpegで縦横比を維持したまま9:16へ余白付け
 - 画像はJPEG、動画はH.264/AAC MP4へ正規化
+- 動画のタイムコード・チャプター・データトラックを除去
 - 非公開Cloud Storageへ保存
 - V4署名URLと変換結果JSONを生成
 - 同じ`STORY_JOB_ID`の再実行では既存出力を再利用
