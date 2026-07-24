@@ -124,6 +124,39 @@ function isStoriesTransformEnabled_() {
   return getStoriesTransformConfig_().enabled;
 }
 
+function configureStoriesTransformForHibi() {
+  PropertiesService.getScriptProperties().setProperties(
+    {
+      STORY_TRANSFORM_MODE: 'legacy',
+      STORY_TRANSFORM_PROJECT_ID: 'hibi-452314',
+      STORY_TRANSFORM_REGION: 'asia-northeast1',
+      STORY_TRANSFORM_JOB_NAME: 'story-media-transformer',
+      STORY_TRANSFORM_BUCKET: 'hibi-452314-story-media',
+      STORY_TRANSFORM_BACKGROUND_COLOR: '000000',
+      STORY_TRANSFORM_LEAD_MINUTES: '120',
+      STORY_TRANSFORM_MAX_DELAY_MINUTES: '30',
+    },
+    false
+  );
+  return checkStoriesTransformSetup();
+}
+
+function setStoriesTransformMode(mode) {
+  const normalizedMode = String(mode || '').trim().toLowerCase();
+  if (['legacy', 'enforce', 'pause'].indexOf(normalizedMode) === -1) {
+    throw new Error(
+      'Stories変換モードはlegacy、enforce、pauseのいずれかで指定してください。'
+    );
+  }
+  PropertiesService
+    .getScriptProperties()
+    .setProperty('STORY_TRANSFORM_MODE', normalizedMode);
+  return {
+    mode: normalizedMode,
+    enabled: normalizedMode === 'enforce',
+  };
+}
+
 function createStoriesPausedError_() {
   const error = new Error(
     'Instagram Stories投稿はSTORY_TRANSFORM_MODE=pauseにより停止中です。'

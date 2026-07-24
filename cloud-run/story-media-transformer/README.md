@@ -193,12 +193,15 @@ Cloud RunとIAMの確認が完了するまでは`legacy`にしておく。
 
 設定後、Apps Scriptエディタから以下を順番に実行する。
 
-1. `checkStoriesTransformSetup()`
+1. `configureStoriesTransformForHibi()`で`legacy`設定と接続を確認
 2. `prepareInstagramStoryFromSheetRow(rowNumber)`で変換だけを確認
-3. `STORY_TRANSFORM_MODE=enforce`へ変更
+3. `setStoriesTransformMode('enforce')`で有効化
 4. `createStoriesTransformTrigger()`
 5. 横長画像のテスト予約
 6. 横長動画のテスト予約
+
+緊急停止は`setStoriesTransformMode('pause')`、
+従来動作へ戻す場合は`setStoriesTransformMode('legacy')`を使用する。
 
 シート行を手動で進める場合は、
 `postPreparedInstagramStoryFromSheetRow(rowNumber)`を繰り返し実行する。
