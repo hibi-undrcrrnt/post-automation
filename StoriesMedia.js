@@ -899,6 +899,22 @@ function postPreparedInstagramStoryFromSheetRow(rowNumber) {
     throw new Error('シート「' + SHEET_NAME + '」が見つかりません。');
   }
   const row = sheet.getRange(targetRow, 1, 1, 9).getValues()[0];
+  const status = String(row[4] || '');
+  if (
+    status === POST_STATUS.POSTED ||
+    status === POST_STATUS.ERROR ||
+    status === POST_STATUS.UNKNOWN
+  ) {
+    throw new Error(
+      'Row ' + targetRow + 'は終端状態のため手動投稿できません: ' +
+      status
+    );
+  }
+  if (!isPostTargetEnabled_(row[8])) {
+    throw new Error(
+      'Row ' + targetRow + 'はinstagram_storiesが有効ではありません。'
+    );
+  }
   const image = String(row[2] || '').trim();
   const video = String(row[3] || '').trim();
   if (!image && !video) {
@@ -942,6 +958,24 @@ function postPreparedInstagramStoryFromSheetRow(rowNumber) {
       ? job.instagram.story.phase
       : 'published',
   };
+}
+
+function postStoriesRow8CanaryNowForHibi() {
+  const config = getStoriesTransformConfig_();
+  if (
+    config.mode !== 'canary' ||
+    config.canaryRow !== STORY_TRANSFORM_HIBI_CANARY_ROW
+  ) {
+    throw new Error(
+      '行8カナリアが有効ではありません。' +
+      'startStoriesRow8CanaryForHibi()を先に実行してください。'
+    );
+  }
+  const result = postPreparedInstagramStoryFromSheetRow(
+    STORY_TRANSFORM_HIBI_CANARY_ROW
+  );
+  Logger.log(JSON.stringify(result));
+  return result;
 }
 
 function prepareInstagramStoryFromSheetRow(rowNumber) {

@@ -499,6 +499,36 @@ test('hibi行8カナリア関数は接続確認後にトリガーと対象行を
   }
 });
 
+test('hibi行8即時投稿関数はcanary対象行だけを呼び出す', () => {
+  const originalConfig = context.getStoriesTransformConfig_;
+  const originalPost = context.postPreparedInstagramStoryFromSheetRow;
+  const postedRows = [];
+  context.getStoriesTransformConfig_ = () => ({
+    enabled: true,
+    mode: 'canary',
+    canaryRow: 8,
+  });
+  context.postPreparedInstagramStoryFromSheetRow = rowNumber => {
+    postedRows.push(rowNumber);
+    return {
+      rowNumber,
+      completed: false,
+      status: 'processing',
+      phase: 'submitted',
+    };
+  };
+
+  try {
+    const result = context.postStoriesRow8CanaryNowForHibi();
+    assert.deepEqual(postedRows, [8]);
+    assert.equal(result.rowNumber, 8);
+    assert.equal(result.phase, 'submitted');
+  } finally {
+    context.getStoriesTransformConfig_ = originalConfig;
+    context.postPreparedInstagramStoryFromSheetRow = originalPost;
+  }
+});
+
 test('hibi運用関数はStoriesモードを明示値で切り替える', () => {
   const originalSetMode = context.setStoriesTransformMode;
   const modes = [];
