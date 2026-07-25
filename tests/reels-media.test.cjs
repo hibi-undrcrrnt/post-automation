@@ -336,3 +336,65 @@ test('hibiカナリア関数は安全条件を満たす単一候補行を設定�
     context.startInstagramReelCanaryForSheetRow_ = originalStart;
   }
 });
+
+test('hibiカナリア確認は署名URLを含めず状態だけを返す', () => {
+  const originalConfig = context.getInstagramReelTransformConfig_;
+  const originalLoad = context.loadPostJob_;
+  context.getInstagramReelTransformConfig_ = () => ({
+    mode: 'canary',
+    canaryRow: 10,
+  });
+  context.loadPostJob_ = () => ({
+    instagram: {
+      reel: {
+        phase: 'container_processing',
+        outputObject: 'instagram-reels/output/video.mp4',
+        outputUrl: 'https://signed.example/secret',
+        containerId: 'container-10',
+        containerStatus: 'IN_PROGRESS',
+        lastError: '',
+      },
+    },
+  });
+  try {
+    const result = context.inspectInstagramReelCanaryForHibi();
+    assert.equal(result.canaryRow, 10);
+    assert.equal(result.phase, 'container_processing');
+    assert.equal(result.containerCreated, true);
+    assert.equal(result.containerStatus, 'IN_PROGRESS');
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(result, 'outputUrl'),
+      false
+    );
+  } finally {
+    context.getInstagramReelTransformConfig_ = originalConfig;
+    context.loadPostJob_ = originalLoad;
+  }
+});
+
+test('hibiカナリア準備は1回進めてから状態を返す', () => {
+  const originalConfig = context.getInstagramReelTransformConfig_;
+  const originalPrepare = context.prepareInstagramReels;
+  const originalInspect = context.inspectInstagramReelCanaryForHibi;
+  const calls = [];
+  context.getInstagramReelTransformConfig_ = () => ({
+    mode: 'canary',
+    canaryRow: 10,
+  });
+  context.prepareInstagramReels = () => {
+    calls.push('prepare');
+  };
+  context.inspectInstagramReelCanaryForHibi = () => {
+    calls.push('inspect');
+    return { canaryRow: 10, phase: 'container_processing' };
+  };
+  try {
+    const result = context.prepareInstagramReelCanaryForHibi();
+    assert.deepEqual(calls, ['prepare', 'inspect']);
+    assert.equal(result.phase, 'container_processing');
+  } finally {
+    context.getInstagramReelTransformConfig_ = originalConfig;
+    context.prepareInstagramReels = originalPrepare;
+    context.inspectInstagramReelCanaryForHibi = originalInspect;
+  }
+});

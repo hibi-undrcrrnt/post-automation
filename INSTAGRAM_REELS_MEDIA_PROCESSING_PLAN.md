@@ -274,6 +274,14 @@ Apps Scriptエディタから次を実行する。
 4. `prepareInstagramReels()`を実行し、変換・コンテナ準備を確認
 5. 予約時刻に公開し、実機表示を確認
 
+カナリア中の手動確認には次を使う。署名URLやアクセストークンは
+ログへ出さない。
+
+- `prepareInstagramReelCanaryForHibi()`:
+  準備を1段階進め、行・phase・コンテナ状態をログ出力
+- `inspectInstagramReelCanaryForHibi()`:
+  外部処理を進めず、保存済み状態だけをログ出力
+
 ## 8. 受け入れ条件
 
 - 行7のMOVからMeta処理可能なMP4を生成できる

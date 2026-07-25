@@ -1011,6 +1011,43 @@ function verifyInstagramReelTransformForHibi() {
   return result;
 }
 
+function inspectInstagramReelCanaryForHibi() {
+  const config = getInstagramReelTransformConfig_();
+  if (
+    config.mode !== 'canary' ||
+    !Number.isInteger(config.canaryRow)
+  ) {
+    throw new Error('Reelsカナリア行が設定されていません。');
+  }
+  const job = loadPostJob_(config.canaryRow);
+  const state = job && job.instagram && job.instagram.reel;
+  const result = {
+    mode: config.mode,
+    canaryRow: config.canaryRow,
+    jobFound: Boolean(job),
+    phase: state ? state.phase : 'not_started',
+    outputObject: state ? (state.outputObject || '') : '',
+    containerCreated: Boolean(state && state.containerId),
+    containerStatus: state ? (state.containerStatus || '') : '',
+    published: Boolean(state && state.phase === 'published'),
+    lastError: state ? (state.lastError || '') : '',
+  };
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
+function prepareInstagramReelCanaryForHibi() {
+  const config = getInstagramReelTransformConfig_();
+  if (
+    config.mode !== 'canary' ||
+    !Number.isInteger(config.canaryRow)
+  ) {
+    throw new Error('Reelsカナリア行が設定されていません。');
+  }
+  prepareInstagramReels();
+  return inspectInstagramReelCanaryForHibi();
+}
+
 function createInstagramReelTransformTrigger() {
   const exists = ScriptApp.getProjectTriggers().some(
     trigger =>
