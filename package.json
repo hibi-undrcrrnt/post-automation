@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "node tests/code.test.cjs && node tests/stories-media.test.cjs && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s cloud-run/story-media-transformer/tests -v"
+    "test": "node tests/code.test.cjs && node tests/stories-media.test.cjs && node tests/reels-media.test.cjs && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s cloud-run/story-media-transformer/tests -v"
   },
   "keywords": [],
   "author": "",

@@ -438,14 +438,21 @@ function createInstagramVideoStoryContainer_(videoUrl, config) {
   return result.id;
 }
 
+function getInstagramContainerStatus_(containerId, config) {
+  if (!containerId) {
+    throw new Error('InstagramメディアコンテナIDが空です。');
+  }
+  return instagramRequest_(
+    containerId,
+    'get',
+    { fields: 'status_code,status' },
+    config
+  );
+}
+
 function waitForInstagramContainer_(containerId, config) {
   for (let i = 0; i < 24; i++) {
-    const result = instagramRequest_(
-      containerId,
-      'get',
-      { fields: 'status_code,status' },
-      config
-    );
+    const result = getInstagramContainerStatus_(containerId, config);
     const statusCode = result.status_code;
 
     if (statusCode === 'FINISHED') return result;

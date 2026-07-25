@@ -10,6 +10,7 @@ from transformer.core import (
     build_video_copy_command,
     build_video_command,
     can_copy_without_transcoding,
+    choose_output_frame_rate,
     normalize_background_color,
     validate_output_probe,
     validate_source_revision,
@@ -81,6 +82,11 @@ class CoreTest(unittest.TestCase):
         self.assertIn("-map_metadata", command)
         self.assertIn("-map_chapters", command)
         self.assertIn("-dn", command)
+        self.assertIn("-fps_mode", command)
+        self.assertIn("cfr", command)
+        self.assertIn("-ac", command)
+        self.assertIn("-maxrate", command)
+        self.assertIn("10M", command)
 
     def test_video_copy_command_remuxes_without_quality_loss(self):
         command = build_video_copy_command(
@@ -107,6 +113,72 @@ class CoreTest(unittest.TestCase):
                     ],
                 }
             )
+
+    def test_reels_accepts_row_seven_duration(self):
+        validate_video_probe(
+            {
+                "format": {"duration": "56.192"},
+                "streams": [
+                    {
+                        "codec_type": "video",
+                        "width": 1440,
+                        "height": 1080,
+                    }
+                ],
+            },
+            "reels",
+        )
+
+    def test_reels_rejects_video_outside_three_to_nine_hundred_seconds(self):
+        for duration in ("2.999", "900.001"):
+            with self.subTest(duration=duration):
+                with self.assertRaisesRegex(
+                    TransformError,
+                    "Instagram Reels",
+                ):
+                    validate_video_probe(
+                        {
+                            "format": {"duration": duration},
+                            "streams": [
+                                {
+                                    "codec_type": "video",
+                                    "width": 1080,
+                                    "height": 1920,
+                                }
+                            ],
+                        },
+                        "reels",
+                    )
+
+    def test_reels_preserves_compliant_cfr_and_normalizes_vfr(self):
+        self.assertEqual(
+            choose_output_frame_rate(
+                {
+                    "streams": [
+                        {
+                            "codec_type": "video",
+                            "avg_frame_rate": "24/1",
+                            "r_frame_rate": "24/1",
+                        }
+                    ]
+                }
+            ),
+            "24/1",
+        )
+        self.assertEqual(
+            choose_output_frame_rate(
+                {
+                    "streams": [
+                        {
+                            "codec_type": "video",
+                            "avg_frame_rate": "24000/1001",
+                            "r_frame_rate": "30/1",
+                        }
+                    ]
+                }
+            ),
+            "30",
+        )
 
     def test_validates_normalized_video_output(self):
         details = validate_output_probe(
@@ -181,6 +253,60 @@ class CoreTest(unittest.TestCase):
         self.assertFalse(
             can_copy_without_transcoding(probe, "video", "video/mp4")
         )
+
+    def test_reels_always_transcodes_to_strip_container_variance(self):
+        probe = {
+            "format": {"duration": "30.0"},
+            "streams": [
+                {
+                    "codec_type": "video",
+                    "width": 1080,
+                    "height": 1920,
+                    "codec_name": "h264",
+                    "pix_fmt": "yuv420p",
+                },
+                {
+                    "codec_type": "audio",
+                    "codec_name": "aac",
+                },
+            ],
+        }
+        self.assertFalse(
+            can_copy_without_transcoding(
+                probe,
+                "video",
+                "video/mp4",
+                "reels",
+            )
+        )
+
+    def test_validates_reels_audio_and_frame_rate(self):
+        details = validate_output_probe(
+            {
+                "format": {"duration": "56.192"},
+                "streams": [
+                    {
+                        "codec_type": "video",
+                        "width": 1080,
+                        "height": 1920,
+                        "codec_name": "h264",
+                        "pix_fmt": "yuv420p",
+                        "avg_frame_rate": "24/1",
+                        "r_frame_rate": "24/1",
+                    },
+                    {
+                        "codec_type": "audio",
+                        "codec_name": "aac",
+                        "sample_rate": "48000",
+                        "channels": 2,
+                    },
+                ],
+            },
+            "video",
+            "reels",
+        )
+        self.assertEqual(details["frame_rate"], 24.0)
+        self.assertEqual(details["audio_sample_rate"], 48000)
 
 
 if __name__ == "__main__":

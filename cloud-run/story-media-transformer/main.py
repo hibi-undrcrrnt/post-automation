@@ -1,4 +1,4 @@
-"""Cloud Run Job entrypoint for Instagram Stories media conversion."""
+"""Cloud Run Job entrypoint for Instagram media conversion."""
 
 from __future__ import annotations
 
@@ -25,7 +25,9 @@ from transformer.core import (
     build_video_copy_command,
     build_video_command,
     can_copy_without_transcoding,
+    choose_output_frame_rate,
     normalize_background_color,
+    normalize_media_target,
     probe_media,
     run_command,
     validate_input_mime_type,
@@ -214,7 +216,16 @@ def refresh_ready_manifest_url(
 
 
 def run() -> None:
-    job_id = required_env("STORY_JOB_ID")
+    job_id = str(
+        os.getenv("MEDIA_JOB_ID") or os.getenv("STORY_JOB_ID") or ""
+    ).strip()
+    if not job_id:
+        raise TransformError(
+            "Required environment variable is missing: MEDIA_JOB_ID"
+        )
+    media_target = normalize_media_target(
+        os.getenv("MEDIA_TARGET", "stories")
+    )
     drive_file_id = required_env("DRIVE_FILE_ID")
     expected_modified_time = required_env("EXPECTED_SOURCE_MODIFIED_TIME")
     expected_size = int(required_env("EXPECTED_SOURCE_SIZE"))
@@ -257,6 +268,7 @@ def run() -> None:
         "status": "processing",
         "job_id": job_id,
         "media_kind": media_kind,
+        "media_target": media_target,
         "started_at": isoformat_utc(utc_now()),
     }
     try:
@@ -270,7 +282,9 @@ def run() -> None:
     output_object = f"{output_prefix}/{job_id}{suffix}"
 
     try:
-        with tempfile.TemporaryDirectory(prefix="story-transform-") as tmp:
+        with tempfile.TemporaryDirectory(
+            prefix=f"{media_target}-transform-"
+        ) as tmp:
             tmp_path = Path(tmp)
             input_path = tmp_path / "input"
             output_path = tmp_path / f"output{suffix}"
@@ -290,13 +304,16 @@ def run() -> None:
                 input_probe,
                 media_kind,
                 mime_type,
+                media_target,
             )
             if media_kind == "video":
-                validate_video_probe(input_probe)
+                validate_video_probe(input_probe, media_target)
                 command = build_video_command(
                     input_path,
                     output_path,
                     background_color,
+                    choose_output_frame_rate(input_probe),
+                    "4.2" if media_target == "reels" else "4.1",
                 )
             else:
                 command = build_image_command(
@@ -307,7 +324,8 @@ def run() -> None:
 
             if copied_without_transcoding:
                 LOGGER.info(
-                    "Input already meets Stories output requirements: %s",
+                    "Input already meets %s output requirements: %s",
+                    media_target,
                     job_id,
                 )
                 if media_kind == "video":
@@ -324,7 +342,11 @@ def run() -> None:
                     "Transformed output exceeds the Instagram 1 GiB limit"
                 )
             output_probe = probe_media(output_path)
-            output_details = validate_output_probe(output_probe, media_kind)
+            output_details = validate_output_probe(
+                output_probe,
+                media_kind,
+                media_target,
+            )
 
             output_blob = bucket.blob(output_object)
             output_blob.upload_from_filename(
@@ -341,6 +363,7 @@ def run() -> None:
                 "status": "ready",
                 "job_id": job_id,
                 "media_kind": media_kind,
+                "media_target": media_target,
                 "source_file_id": drive_file_id,
                 "source_modified_time": metadata.get("modifiedTime", ""),
                 "source_size": int(metadata.get("size") or 0),
@@ -357,9 +380,17 @@ def run() -> None:
                 **output_details,
             }
             replace_manifest(bucket, result_object, manifest)
-            LOGGER.info("Story transformation completed: %s", job_id)
+            LOGGER.info(
+                "%s transformation completed: %s",
+                media_target,
+                job_id,
+            )
     except Exception as error:
-        LOGGER.exception("Story transformation failed: %s", job_id)
+        LOGGER.exception(
+            "%s transformation failed: %s",
+            media_target,
+            job_id,
+        )
         try:
             existing = load_ready_manifest(bucket, result_object)
         except Exception:
@@ -377,6 +408,7 @@ def run() -> None:
             "status": "error",
             "job_id": job_id,
             "media_kind": media_kind,
+            "media_target": media_target,
             "error_type": type(error).__name__,
             "error": str(error)[:1000],
             "failed_at": isoformat_utc(utc_now()),

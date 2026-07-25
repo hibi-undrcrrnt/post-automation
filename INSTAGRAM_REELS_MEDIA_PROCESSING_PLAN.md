@@ -1,5 +1,9 @@
 # Instagram通常動画（Reels）正規化・非同期投稿計画
 
+> 実装状況（2026-07-25）: 変換器、Apps Script連携、新Cloud Run Job、
+> 行7の投稿なしGCP E2Eまで完了。現在は安全のため`legacy`既定。
+> 次は新規テスト行によるReelsカナリア投稿。
+
 ## 1. 目的
 
 Google Drive上の動画をInstagram通常投稿へ送る前に、
@@ -73,7 +77,7 @@ Cloudinaryなど別サービスは追加せず、既存のGCP基盤を再利用�
 - GCSバケット: 既存の非公開一時バケット
 - オブジェクト接頭辞: `instagram-reels/`
 - 保持期間: 3日
-- コンテナイメージ: Stories版から派生した別Git SHAタグ
+- コンテナイメージ: Stories版から派生した別のimmutable digest
 
 Cloud Run Jobにはアイドル料金がなく、分離による運用コスト増を抑えながら、
 Storiesの安定版をロールバック先として維持できる。
@@ -86,7 +90,7 @@ Storiesの安定版をロールバック先として維持できる。
 | --- | --- |
 | キャンバス | 1080×1920（9:16） |
 | 画面配置 | 縦横比を維持して中央配置、余白は黒 |
-| 映像 | H.264 High / yuv420p / progressive |
+| 映像 | H.264 High Level 4.2 / yuv420p / progressive |
 | フレームレート | 23〜60fps CFR。適合入力は維持 |
 | 映像ビットレート | 最大10Mbps |
 | 音声 | AAC-LC / 48kHz / stereo / 128kbps |
@@ -105,7 +109,7 @@ FFmpegでは概ね次を行う。
 -map 0:v:0 -map 0:a:0?
 -vf scale=1080:1920:force_original_aspect_ratio=decrease,
     pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,setsar=1
--c:v libx264 -profile:v high -pix_fmt yuv420p
+-c:v libx264 -profile:v high -level 4.2 -pix_fmt yuv420p
 -fps_mode cfr -maxrate 10M -bufsize 20M
 -c:a aac -ar 48000 -ac 2 -b:a 128k
 -map_metadata -1 -map_chapters -1 -dn
@@ -162,7 +166,6 @@ not_started
   -> submitted
   -> processing
   -> ready
-  -> container_created
   -> container_processing
   -> container_ready
   -> publishing
@@ -182,14 +185,14 @@ Storiesの状態とは分離し、同じ行でStoriesとReelsが有効でも
 Script Propertiesへ次を追加する。
 
 ```text
-INSTAGRAM_REEL_TRANSFORM_MODE=legacy
-INSTAGRAM_REEL_TRANSFORM_PROJECT_ID=hibi-452314
-INSTAGRAM_REEL_TRANSFORM_REGION=asia-northeast1
-INSTAGRAM_REEL_TRANSFORM_JOB_NAME=instagram-reel-transformer
-INSTAGRAM_REEL_TRANSFORM_BUCKET=hibi-452314-story-media
-INSTAGRAM_REEL_TRANSFORM_BACKGROUND_COLOR=000000
-INSTAGRAM_REEL_TRANSFORM_LEAD_MINUTES=120
-INSTAGRAM_REEL_TRANSFORM_MAX_DELAY_MINUTES=30
+REEL_TRANSFORM_MODE=legacy
+REEL_TRANSFORM_PROJECT_ID=hibi-452314
+REEL_TRANSFORM_REGION=asia-northeast1
+REEL_TRANSFORM_JOB_NAME=instagram-reel-transformer
+REEL_TRANSFORM_BUCKET=hibi-452314-story-media
+REEL_TRANSFORM_BACKGROUND_COLOR=000000
+REEL_TRANSFORM_LEAD_MINUTES=120
+REEL_TRANSFORM_MAX_DELAY_MINUTES=30
 ```
 
 モードはStoriesと同じ考え方を使う。
@@ -205,17 +208,17 @@ INSTAGRAM_REEL_TRANSFORM_MAX_DELAY_MINUTES=30
 
 ### Phase 1: 変換器
 
-1. Reels用FFmpegプロファイルを実装
-2. 行7の実ファイルでMP4を生成
-3. `ffprobe`で映像・音声以外のトラックがないことを確認
-4. 匿名Range GETとContent-Typeを確認
+1. [完了] Reels用FFmpegプロファイルを実装
+2. [完了] 行7の実ファイルでMP4を生成
+3. [完了] `ffprobe`で映像・音声以外のトラックがないことを確認
+4. [完了] 匿名Range GETとContent-Typeを確認
 
 ### Phase 2: Apps Script連携
 
-1. `instagram.reel`状態管理を追加
-2. 事前変換トリガーをReelsへ拡張
-3. Metaコンテナ処理を非同期化
-4. `published` / `unknown`の二重投稿防止を追加
+1. [完了] `instagram.reel`状態管理を追加
+2. [完了] Reels専用の事前変換トリガーを追加
+3. [完了] Metaコンテナ処理を非同期化
+4. [完了] `published` / `unknown`の二重投稿防止を追加
 
 ### Phase 3: カナリア
 
@@ -228,6 +231,48 @@ INSTAGRAM_REEL_TRANSFORM_MAX_DELAY_MINUTES=30
 7. Reelsへ1件投稿
 8. 映像全体、音声、caption、フィード表示を実機確認
 9. 24時間監視後に`enforce`
+
+## 7.1 2026-07-25 デプロイ・E2E結果
+
+- Cloud Run Job:
+  `instagram-reel-transformer`（`asia-northeast1`）
+- デプロイイメージdigest:
+  `sha256:6ffa55667ae23c7a1e5f575614b87920b8866b9d9e92c3779e09d939e55dd27d`
+- リソース: 2 CPU / 4GiB / timeout 30分 / max retries 2
+- 既存`story-media-transformer`は`transformer:97bf7f2`のまま
+- Apps Scriptへ`ReelsMedia.js`を含む5ファイルをpush済み
+- Script Properties未設定時も`legacy`として動作し、既存投稿経路を維持
+
+行7を新Jobへ直接投入した投稿なしE2E
+`instagram-reel-transformer-w2vq2`は成功した。manifestは次の値を返した。
+
+| 項目 | 結果 |
+| --- | --- |
+| status / target | `ready` / `reels` |
+| output | `instagram-reels/output/row7-e2e-final-20260725.mp4` |
+| 解像度 | 1080×1920 |
+| 映像 | H.264 / yuv420p / 24fps CFR |
+| 音声 | AAC / 48kHz / 2ch |
+| 長さ | 56.148秒 |
+
+このE2EではInstagram APIを呼んでおらず、Reels投稿は発生していない。
+
+## 7.2 カナリア前の手動操作
+
+`clasp run`はこのApps Scriptの実行権限構成では利用できないため、
+Apps Scriptエディタから次を実行する。
+
+1. `configureInstagramReelTransformForHibi()`
+2. 必要なら`verifyInstagramReelTransformForHibi()`
+
+   行7を変換するだけで、Metaコンテナ作成・投稿は行わない。
+3. 新規カナリア行を1行だけ作成後、
+   `startInstagramReelCanaryForHibi()`
+
+   D列動画あり、X=FALSE、Instagram=TRUE、Stories=FALSE、
+   終端status以外の行を自動選択する。
+4. `prepareInstagramReels()`を実行し、変換・コンテナ準備を確認
+5. 予約時刻に公開し、実機表示を確認
 
 ## 8. 受け入れ条件
 

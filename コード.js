@@ -893,6 +893,7 @@ function createPostJob_(row, rowNumber, enabledTargets) {
     },
     instagram: {
       story: null,
+      reel: null,
     },
   };
 }
@@ -1078,7 +1079,47 @@ function processInstagramTarget_(
 ) {
   if (target.header === 'instagram_post') {
     if (video) {
-      postInstagramVideoByUrl(video, text);
+      const preparation = advanceInstagramReelPreparation_(
+        job,
+        video,
+        text,
+        scheduledAt,
+        deadlineMs
+      );
+      if (!preparation.completed) return preparation;
+      if (!preparation.transformed) {
+        postInstagramVideoByUrl(video, text);
+        return { completed: true };
+      }
+      if (!preparation.alreadyPublished) {
+        const reelState = job.instagram && job.instagram.reel;
+        reelState.phase = 'publishing';
+        savePostJob_(job);
+        try {
+          reelState.mediaId = publishInstagramContainer_(
+            reelState.containerId,
+            getInstagramConfig_()
+          );
+        } catch (error) {
+          const ambiguous =
+            error &&
+            error.instagramPublishAttempt === true &&
+            (
+              error.transportError === true ||
+              error.ambiguousResult === true ||
+              error.retryable === true
+            );
+          reelState.phase = ambiguous ? 'unknown' : 'container_ready';
+          reelState.lastError =
+            error && error.message ? error.message : String(error);
+          savePostJob_(job);
+          if (ambiguous) error.retryable = false;
+          throw error;
+        }
+        reelState.phase = 'published';
+        reelState.lastError = '';
+        savePostJob_(job);
+      }
     } else if (image) {
       postInstagramImageByUrl(image, text);
     } else {
@@ -1244,6 +1285,27 @@ function postRowToEnabledTargets_(
 
 function getPendingStatus_(job) {
   const story = job.instagram && job.instagram.story;
+  const reel = job.instagram && job.instagram.reel;
+  if (
+    reel &&
+    (
+      reel.phase === 'submitted' ||
+      reel.phase === 'processing' ||
+      reel.phase === 'container_processing'
+    )
+  ) {
+    return POST_STATUS.PROCESSING;
+  }
+  if (
+    reel &&
+    (
+      reel.phase === 'container_ready' ||
+      reel.phase === 'publishing' ||
+      reel.phase === 'published'
+    )
+  ) {
+    return POST_STATUS.POSTING;
+  }
   if (
     story &&
     (
@@ -1297,6 +1359,30 @@ function buildProgressMessage_(job, status) {
   }
 
   const story = job.instagram && job.instagram.story;
+  const reel = job.instagram && job.instagram.reel;
+  if (
+    reel &&
+    status === POST_STATUS.PROCESSING &&
+    (
+      reel.phase === 'submitted' ||
+      reel.phase === 'processing'
+    )
+  ) {
+    return (
+      'Reelsメディア変換中: phase=' + reel.phase +
+      ', attempt=' + reel.attempts
+    );
+  }
+  if (
+    reel &&
+    status === POST_STATUS.PROCESSING &&
+    reel.phase === 'container_processing'
+  ) {
+    return (
+      'Reelsコンテナ処理待ち: containerId=' +
+      reel.containerId
+    );
+  }
   if (
     story &&
     status === POST_STATUS.PROCESSING &&
@@ -1478,6 +1564,11 @@ function checkAndPostLocked_() {
               job.instagram &&
               job.instagram.story &&
               job.instagram.story.phase === 'unknown'
+            ) ||
+            (
+              job.instagram &&
+              job.instagram.reel &&
+              job.instagram.reel.phase === 'unknown'
             )
           )
         )
@@ -1571,6 +1662,17 @@ function retryPostRow(rowNumber) {
   ) {
     throw new Error(
       '保存ジョブのStories投稿結果が不明です。' +
+      '二重投稿防止のため再試行できません。'
+    );
+  }
+  if (
+    job &&
+    job.instagram &&
+    job.instagram.reel &&
+    job.instagram.reel.phase === 'unknown'
+  ) {
+    throw new Error(
+      '保存ジョブのReels投稿結果が不明です。' +
       '二重投稿防止のため再試行できません。'
     );
   }

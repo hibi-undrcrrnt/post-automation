@@ -1,7 +1,7 @@
-# Story Media Transformer
+# Instagram Media Transformer
 
-Google Driveの画像・動画をInstagram Stories用の1080×1920へ変換する
-Cloud Run Jobです。
+Google Driveの画像・動画をInstagram StoriesまたはReels用の
+1080×1920へ変換するCloud Run Jobです。
 
 ## 処理内容
 
@@ -11,7 +11,9 @@ Cloud Run Jobです。
 - 動画のタイムコード・チャプター・データトラックを除去
 - 非公開Cloud Storageへ保存
 - V4署名URLと変換結果JSONを生成
-- 同じ`STORY_JOB_ID`の再実行では既存出力を再利用
+- Storiesは60秒以内、Reelsは3秒以上15分以内を検証
+- Reels動画はCFR、最大10Mbps、AAC 48kHz/2ch/128kbpsへ正規化
+- 同じ`MEDIA_JOB_ID`の再実行では既存出力を再利用
 
 ## 必要なAPI
 
@@ -190,6 +192,22 @@ STORY_TRANSFORM_MAX_DELAY_MINUTES=30
 
 Cloud RunとIAMの確認が完了するまでは`legacy`にしておく。
 緊急停止時は`false`へ戻さず`pause`へ変更する。
+
+Reels用の並行Jobでは次を使用する。
+
+```text
+REEL_TRANSFORM_MODE=legacy
+REEL_TRANSFORM_PROJECT_ID=<PROJECT_ID>
+REEL_TRANSFORM_REGION=asia-northeast1
+REEL_TRANSFORM_JOB_NAME=instagram-reel-transformer
+REEL_TRANSFORM_BUCKET=<BUCKET_NAME>
+REEL_TRANSFORM_BACKGROUND_COLOR=000000
+REEL_TRANSFORM_LEAD_MINUTES=120
+REEL_TRANSFORM_MAX_DELAY_MINUTES=30
+```
+
+Jobの固定環境変数へ`MEDIA_TARGET=reels`を設定し、Apps Scriptの
+実行overrideでは`MEDIA_JOB_ID`、Drive revision、GCS出力先を渡す。
 
 設定後、Apps Scriptエディタから以下を順番に実行する。
 

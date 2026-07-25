@@ -13,6 +13,10 @@ from typing import Any
 OUTPUT_WIDTH = 1080
 OUTPUT_HEIGHT = 1920
 STORY_MAX_VIDEO_SECONDS = 60.0
+REEL_MIN_VIDEO_SECONDS = 3.0
+REEL_MAX_VIDEO_SECONDS = 15.0 * 60.0
+DEFAULT_OUTPUT_FRAME_RATE = "30"
+SUPPORTED_MEDIA_TARGETS = {"stories", "reels"}
 SUPPORTED_IMAGE_MIME_TYPES = {
     "image/jpeg",
     "image/png",
@@ -184,14 +188,65 @@ def parse_duration_seconds(probe: dict[str, Any]) -> float | None:
         raise TransformError(f"Invalid media duration: {raw_value}") from error
 
 
-def validate_video_probe(probe: dict[str, Any]) -> None:
+def normalize_media_target(media_target: str) -> str:
+    normalized = str(media_target or "").strip().lower()
+    if normalized not in SUPPORTED_MEDIA_TARGETS:
+        raise TransformError(
+            "MEDIA_TARGET must be stories or reels: "
+            f"{media_target or 'empty'}"
+        )
+    return normalized
+
+
+def parse_frame_rate(value: Any) -> float | None:
+    raw_value = str(value or "").strip()
+    if not raw_value or raw_value == "0/0":
+        return None
+    try:
+        if "/" in raw_value:
+            numerator, denominator = raw_value.split("/", 1)
+            denominator_value = float(denominator)
+            if denominator_value == 0:
+                return None
+            return float(numerator) / denominator_value
+        return float(raw_value)
+    except (TypeError, ValueError):
+        return None
+
+
+def choose_output_frame_rate(probe: dict[str, Any]) -> str:
+    stream = first_video_stream(probe)
+    average = parse_frame_rate(stream.get("avg_frame_rate"))
+    nominal = parse_frame_rate(stream.get("r_frame_rate"))
+    if (
+        average is not None
+        and nominal is not None
+        and 23.0 <= average <= 60.0
+        and abs(average - nominal) <= 0.01
+    ):
+        return str(stream.get("avg_frame_rate"))
+    return DEFAULT_OUTPUT_FRAME_RATE
+
+
+def validate_video_probe(
+    probe: dict[str, Any],
+    media_target: str = "stories",
+) -> None:
+    target = normalize_media_target(media_target)
     duration = parse_duration_seconds(probe)
     if duration is None:
         raise TransformError("Video duration could not be determined")
-    if duration <= 0 or duration > STORY_MAX_VIDEO_SECONDS:
+    minimum = 0.0 if target == "stories" else REEL_MIN_VIDEO_SECONDS
+    maximum = (
+        STORY_MAX_VIDEO_SECONDS
+        if target == "stories"
+        else REEL_MAX_VIDEO_SECONDS
+    )
+    if duration <= minimum or duration > maximum:
+        label = "Instagram Stories" if target == "stories" else "Instagram Reels"
         raise TransformError(
-            "Instagram Stories video duration must be greater than zero "
-            f"and at most {STORY_MAX_VIDEO_SECONDS:.0f} seconds: "
+            f"{label} video duration must be greater than "
+            f"{minimum:.0f} seconds and at most {maximum:.0f} seconds: "
             f"{duration:.3f}"
         )
 
@@ -200,7 +255,9 @@ def can_copy_without_transcoding(
     probe: dict[str, Any],
     media_kind: str,
     mime_type: str,
+    media_target: str = "stories",
 ) -> bool:
+    target = normalize_media_target(media_target)
     stream = first_video_stream(probe)
     if (
         int(stream.get("width") or 0) != OUTPUT_WIDTH
@@ -216,7 +273,11 @@ def can_copy_without_transcoding(
         )
 
     if media_kind == "video":
-        validate_video_probe(probe)
+        validate_video_probe(probe, target)
+        # Reels are always re-encoded so that MOV metadata/data tracks, audio
+        # bitrate/channel layout and variable frame rate cannot leak through.
+        if target == "reels":
+            return False
         audio = first_audio_stream(probe)
         return (
             mime_type == "video/mp4"
@@ -267,6 +328,8 @@ def build_video_command(
     input_path: Path,
     output_path: Path,
     background_color: str,
+    output_frame_rate: str = DEFAULT_OUTPUT_FRAME_RATE,
+    output_level: str = "4.1",
 ) -> list[str]:
     return [
         "ffmpeg",
@@ -293,15 +356,25 @@ def build_video_command(
         "-profile:v",
         "high",
         "-level",
-        "4.1",
+        str(output_level),
         "-pix_fmt",
         "yuv420p",
+        "-fps_mode",
+        "cfr",
+        "-r",
+        str(output_frame_rate),
+        "-maxrate",
+        "10M",
+        "-bufsize",
+        "20M",
         "-movflags",
         "+faststart",
         "-c:a",
         "aac",
         "-ar",
         "48000",
+        "-ac",
+        "2",
         "-b:a",
         "128k",
         "-max_muxing_queue_size",
@@ -339,7 +412,9 @@ def build_video_copy_command(
 def validate_output_probe(
     probe: dict[str, Any],
     media_kind: str,
+    media_target: str = "stories",
 ) -> dict[str, Any]:
+    target = normalize_media_target(media_target)
     stream = first_video_stream(probe)
     width = int(stream.get("width") or 0)
     height = int(stream.get("height") or 0)
@@ -357,7 +432,7 @@ def validate_output_probe(
     }
 
     if media_kind == "video":
-        validate_video_probe(probe)
+        validate_video_probe(probe, target)
         unexpected_stream_types = sorted(
             {
                 str(stream.get("codec_type") or "unknown")
@@ -387,6 +462,36 @@ def validate_output_probe(
         details["audio_codec"] = (
             str(audio.get("codec_name") or "") if audio else ""
         )
+        if audio:
+            sample_rate = int(audio.get("sample_rate") or 0)
+            channels = int(audio.get("channels") or 0)
+            if target == "reels" and sample_rate != 48000:
+                raise TransformError(
+                    f"Output audio sample rate is {sample_rate}; expected 48000"
+                )
+            if target == "reels" and (channels < 1 or channels > 2):
+                raise TransformError(
+                    f"Output audio channels is {channels}; expected 1 or 2"
+                )
+            if sample_rate:
+                details["audio_sample_rate"] = sample_rate
+            if channels:
+                details["audio_channels"] = channels
+        frame_rate = parse_frame_rate(stream.get("avg_frame_rate"))
+        nominal_frame_rate = parse_frame_rate(stream.get("r_frame_rate"))
+        if target == "reels" and (
+            frame_rate is None
+            or nominal_frame_rate is None
+            or frame_rate < 23.0
+            or frame_rate > 60.0
+            or abs(frame_rate - nominal_frame_rate) > 0.01
+        ):
+            raise TransformError(
+                "Output video frame rate must be CFR between 23 and 60 fps: "
+                f"avg={stream.get('avg_frame_rate') or 'unknown'}, "
+                f"nominal={stream.get('r_frame_rate') or 'unknown'}"
+            )
+        details["frame_rate"] = frame_rate
         details["duration_seconds"] = parse_duration_seconds(probe)
 
     return details
