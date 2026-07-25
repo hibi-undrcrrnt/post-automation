@@ -467,7 +467,7 @@ test('hibi検証関数は画像行3と横長動画行5を投稿なしで準備�
   }
 });
 
-test('hibi行8カナリア関数は接続確認後にトリガーと対象行を設定する', () => {
+test('hibiカナリア関数は接続確認後に画像・動画の対象行を設定する', () => {
   const originalSetup = context.checkStoriesTransformSetup;
   const originalCreateTrigger = context.createStoriesTransformTrigger;
   const originalSetCanary = context.setStoriesTransformCanaryRow_;
@@ -488,10 +488,20 @@ test('hibi行8カナリア関数は接続確認後にトリガーと対象行を
   };
 
   try {
-    const result = context.startStoriesRow8CanaryForHibi();
-    assert.deepEqual(calls, ['setup', 'trigger', 'canary:8']);
-    assert.equal(result.mode, 'canary');
-    assert.equal(result.canaryRow, 8);
+    const imageResult = context.startStoriesRow8CanaryForHibi();
+    const videoResult = context.startStoriesRow9VideoCanaryForHibi();
+    assert.deepEqual(calls, [
+      'setup',
+      'trigger',
+      'canary:8',
+      'setup',
+      'trigger',
+      'canary:9',
+    ]);
+    assert.equal(imageResult.mode, 'canary');
+    assert.equal(imageResult.canaryRow, 8);
+    assert.equal(videoResult.mode, 'canary');
+    assert.equal(videoResult.canaryRow, 9);
   } finally {
     context.checkStoriesTransformSetup = originalSetup;
     context.createStoriesTransformTrigger = originalCreateTrigger;
@@ -499,14 +509,15 @@ test('hibi行8カナリア関数は接続確認後にトリガーと対象行を
   }
 });
 
-test('hibi行8即時投稿関数はcanary対象行だけを呼び出す', () => {
+test('hibi即時投稿関数は画像・動画のcanary対象行だけを呼び出す', () => {
   const originalConfig = context.getStoriesTransformConfig_;
   const originalPost = context.postPreparedInstagramStoryFromSheetRow;
   const postedRows = [];
+  let canaryRow = 8;
   context.getStoriesTransformConfig_ = () => ({
     enabled: true,
     mode: 'canary',
-    canaryRow: 8,
+    canaryRow,
   });
   context.postPreparedInstagramStoryFromSheetRow = rowNumber => {
     postedRows.push(rowNumber);
@@ -519,10 +530,14 @@ test('hibi行8即時投稿関数はcanary対象行だけを呼び出す', () => 
   };
 
   try {
-    const result = context.postStoriesRow8CanaryNowForHibi();
-    assert.deepEqual(postedRows, [8]);
-    assert.equal(result.rowNumber, 8);
-    assert.equal(result.phase, 'submitted');
+    const imageResult = context.postStoriesRow8CanaryNowForHibi();
+    canaryRow = 9;
+    const videoResult = context.postStoriesRow9VideoCanaryNowForHibi();
+    assert.deepEqual(postedRows, [8, 9]);
+    assert.equal(imageResult.rowNumber, 8);
+    assert.equal(imageResult.phase, 'submitted');
+    assert.equal(videoResult.rowNumber, 9);
+    assert.equal(videoResult.phase, 'submitted');
   } finally {
     context.getStoriesTransformConfig_ = originalConfig;
     context.postPreparedInstagramStoryFromSheetRow = originalPost;

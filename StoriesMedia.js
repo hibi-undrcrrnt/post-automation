@@ -9,7 +9,8 @@ const STORY_TRANSFORM_DEFAULT_LEAD_MINUTES = 120;
 const STORY_TRANSFORM_DEFAULT_MAX_DELAY_MINUTES = 30;
 const STORY_TRANSFORM_MIN_URL_REMAINING_MS = 60 * 60 * 1000;
 const STORY_TRANSFORM_TRIGGER_MINUTES = 10;
-const STORY_TRANSFORM_HIBI_CANARY_ROW = 8;
+const STORY_TRANSFORM_HIBI_IMAGE_CANARY_ROW = 8;
+const STORY_TRANSFORM_HIBI_VIDEO_CANARY_ROW = 9;
 const STORY_TRANSFORM_WIDTH = 1080;
 const STORY_TRANSFORM_HEIGHT = 1920;
 
@@ -208,14 +209,24 @@ function enableStoriesTransformForHibi() {
   return setStoriesTransformMode('enforce');
 }
 
-function startStoriesRow8CanaryForHibi() {
+function startStoriesCanaryForHibi_(rowNumber) {
   checkStoriesTransformSetup();
   createStoriesTransformTrigger();
-  const result = setStoriesTransformCanaryRow_(
-    STORY_TRANSFORM_HIBI_CANARY_ROW
-  );
+  const result = setStoriesTransformCanaryRow_(rowNumber);
   Logger.log(JSON.stringify(result));
   return result;
+}
+
+function startStoriesRow8CanaryForHibi() {
+  return startStoriesCanaryForHibi_(
+    STORY_TRANSFORM_HIBI_IMAGE_CANARY_ROW
+  );
+}
+
+function startStoriesRow9VideoCanaryForHibi() {
+  return startStoriesCanaryForHibi_(
+    STORY_TRANSFORM_HIBI_VIDEO_CANARY_ROW
+  );
 }
 
 function pauseStoriesTransformForHibi() {
@@ -960,22 +971,34 @@ function postPreparedInstagramStoryFromSheetRow(rowNumber) {
   };
 }
 
-function postStoriesRow8CanaryNowForHibi() {
+function postStoriesCanaryNowForHibi_(rowNumber) {
+  const targetRow = validateDataRowNumber_(rowNumber);
   const config = getStoriesTransformConfig_();
   if (
     config.mode !== 'canary' ||
-    config.canaryRow !== STORY_TRANSFORM_HIBI_CANARY_ROW
+    config.canaryRow !== targetRow
   ) {
     throw new Error(
-      '行8カナリアが有効ではありません。' +
-      'startStoriesRow8CanaryForHibi()を先に実行してください。'
+      '行' + targetRow + 'カナリアが有効ではありません。'
     );
   }
   const result = postPreparedInstagramStoryFromSheetRow(
-    STORY_TRANSFORM_HIBI_CANARY_ROW
+    targetRow
   );
   Logger.log(JSON.stringify(result));
   return result;
+}
+
+function postStoriesRow8CanaryNowForHibi() {
+  return postStoriesCanaryNowForHibi_(
+    STORY_TRANSFORM_HIBI_IMAGE_CANARY_ROW
+  );
+}
+
+function postStoriesRow9VideoCanaryNowForHibi() {
+  return postStoriesCanaryNowForHibi_(
+    STORY_TRANSFORM_HIBI_VIDEO_CANARY_ROW
+  );
 }
 
 function prepareInstagramStoryFromSheetRow(rowNumber) {
