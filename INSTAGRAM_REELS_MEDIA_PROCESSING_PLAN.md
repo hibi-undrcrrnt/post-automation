@@ -1,8 +1,8 @@
 # Instagram通常動画（Reels）正規化・非同期投稿計画
 
 > 実装状況（2026-07-25）: 変換器、Apps Script連携、新Cloud Run Job、
-> 行7の投稿なしGCP E2Eまで完了。現在は安全のため`legacy`既定。
-> 次は新規テスト行によるReelsカナリア投稿。
+> 行10の実投稿カナリアまで合格。17:42 JSTに`enforce`へ切り替え、
+> 全Instagram通常動画を新方式の対象として本番運用中。
 
 ## 1. 目的
 
@@ -222,15 +222,15 @@ REEL_TRANSFORM_MAX_DELAY_MINUTES=30
 
 ### Phase 3: カナリア
 
-1. 行7はX投稿済みかつ`error`なので履歴として残す
-2. 新しいテスト行へ行7の動画をコピーし、変換用共有フォルダへ配置
-3. `x_post=FALSE`
-4. `instagram_post=TRUE`
-5. `instagram_stories=FALSE`
-6. 変換だけを確認
-7. Reelsへ1件投稿
-8. 映像全体、音声、caption、フィード表示を実機確認
-9. 24時間監視後に`enforce`
+1. [完了] 行7はX投稿済みかつ`error`なので履歴として残す
+2. [完了] 新しいテスト行へ行7の動画をコピーし、変換用共有フォルダへ配置
+3. [完了] `x_post=FALSE`
+4. [完了] `instagram_post=TRUE`
+5. [完了] `instagram_stories=FALSE`
+6. [完了] 変換だけを確認
+7. [完了] Reelsへ1件投稿
+8. [完了] 映像全体、音声、caption、フィード表示を実機確認
+9. [完了] カナリア合格後、運用者判断で`enforce`へ切替
 
 ## 7.1 2026-07-25 デプロイ・E2E結果
 
@@ -303,10 +303,27 @@ Apps Scriptエディタから次を実行する。
 これにより、変換、署名URL、非同期コンテナ準備、予約時刻公開、
 シート完了処理までの本番E2Eが合格した。
 
-次の切替候補は`enableInstagramReelTransformForHibi()`による
-`enforce`である。切替後に問題があれば、投稿を止める場合は
-`pauseInstagramReelTransformForHibi()`、従来経路へ戻す場合は
-`useLegacyInstagramReelTransformForHibi()`を使う。
+カナリア合格を受け、本番切替へ進んだ。
+
+## 7.4 全体本番展開
+
+2026-07-25 17:42 JSTにApps Scriptエディタから
+`enableInstagramReelTransformForHibi()`を実行し、エラーなく完了した。
+この関数はScript Propertyを同期的に更新するため、
+`REEL_TRANSFORM_MODE=enforce`への切替は完了している。
+
+本番運用は次の状態とする。
+
+- `instagram_post=TRUE`かつD列が動画の全行を新方式の対象とする
+- 10分間隔の`prepareInstagramReels`トリガーを継続する
+- 予約時刻の120分前から変換とMetaコンテナ準備を開始する
+- 画像投稿、X投稿、Instagram Stories投稿の既存経路は変更しない
+- シート上の次のInstagram動画は行13、2026-08-05 11:00予定
+
+緊急時は、Instagram動画投稿だけを止める場合に
+`pauseInstagramReelTransformForHibi()`を使う。従来経路へ戻す場合は
+`useLegacyInstagramReelTransformForHibi()`を使うが、未変換MOVで
+行7と同様のMeta処理エラーが再発し得るため、原則として`pause`を優先する。
 
 ## 8. 受け入れ条件
 
