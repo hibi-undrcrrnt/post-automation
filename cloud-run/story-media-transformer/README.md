@@ -210,6 +210,12 @@ Cloud RunとIAMの確認が完了するまでは`legacy`にしておく。
 `prepareInstagramStoryFromSheetRow(rowNumber)`は投稿を行わず、
 過去・将来の予約日時ではなく実行時刻を基準に変換だけを検証する。
 
+hibi環境では`verifyStoriesTransformForHibi()`を実行すると、
+画像の行3と横長動画の行5をまとめて投稿なしで準備する。
+非同期処理のため、両方の`completed`が`true`になるまで同じ関数を
+数回実行する。ログには状態とGCSオブジェクト名だけを出し、
+署名URLは出力しない。
+
 ## Cloud Run Jobの実行時環境変数
 
 Apps Scriptが実行ごとに次を上書きする。

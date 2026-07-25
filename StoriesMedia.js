@@ -933,6 +933,16 @@ function prepareInstagramStoryFromSheetRow(rowNumber) {
   };
 }
 
+function verifyStoriesTransformForHibi() {
+  const result = {
+    setup: checkStoriesTransformSetup(),
+    imageRow3: prepareInstagramStoryFromSheetRow(3),
+    landscapeVideoRow5: prepareInstagramStoryFromSheetRow(5),
+  };
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
 function createStoriesTransformTrigger() {
   const exists = ScriptApp.getProjectTriggers().some(
     trigger => trigger.getHandlerFunction() === 'prepareStories'

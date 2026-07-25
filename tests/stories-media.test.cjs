@@ -6,6 +6,9 @@ const vm = require('node:vm');
 
 const context = {
   console,
+  Logger: {
+    log() {},
+  },
   Utilities: {
     DigestAlgorithm: { SHA_256: 'sha256' },
     Charset: { UTF_8: 'utf8' },
@@ -388,4 +391,33 @@ test('pauseモードでは未加工素材を投稿経路へ返さない', () => 
     /停止中/
   );
   assert.equal(job.instagram.story, null);
+});
+
+test('hibi検証関数は画像行3と横長動画行5を投稿なしで準備する', () => {
+  const originalSetup = context.checkStoriesTransformSetup;
+  const originalPrepare = context.prepareInstagramStoryFromSheetRow;
+  const preparedRows = [];
+  context.checkStoriesTransformSetup = () => ({
+    mode: 'legacy',
+    projectId: 'hibi-452314',
+  });
+  context.prepareInstagramStoryFromSheetRow = rowNumber => {
+    preparedRows.push(rowNumber);
+    return {
+      rowNumber,
+      completed: false,
+      phase: 'submitted',
+    };
+  };
+
+  try {
+    const result = context.verifyStoriesTransformForHibi();
+    assert.deepEqual(preparedRows, [3, 5]);
+    assert.equal(result.setup.mode, 'legacy');
+    assert.equal(result.imageRow3.rowNumber, 3);
+    assert.equal(result.landscapeVideoRow5.rowNumber, 5);
+  } finally {
+    context.checkStoriesTransformSetup = originalSetup;
+    context.prepareInstagramStoryFromSheetRow = originalPrepare;
+  }
 });
