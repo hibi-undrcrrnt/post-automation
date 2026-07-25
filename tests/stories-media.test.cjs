@@ -393,6 +393,51 @@ test('pauseモードでは未加工素材を投稿経路へ返さない', () => 
   assert.equal(job.instagram.story, null);
 });
 
+test('canaryモードは指定行だけを変換する', () => {
+  const canaryConfig = {
+    ...config,
+    mode: 'canary',
+    canaryRow: 8,
+  };
+  const otherRowJob = newJob();
+  otherRowJob.rowNumber = 7;
+  const canaryJob = newJob();
+  canaryJob.rowNumber = 8;
+  let metadataReads = 0;
+  context.getStoryDriveMetadata_ = () => {
+    metadataReads += 1;
+    return metadata();
+  };
+  context.hasRequestTime_ = () => true;
+  context.invokeStoryTransformJob_ = () => 'operations/op-canary';
+  context.savePostJob_ = () => {};
+
+  const otherRowResult = context.advanceInstagramStoryPreparation_(
+    otherRowJob,
+    'drive-file-123',
+    'video',
+    new Date(),
+    Date.now() + 60000,
+    canaryConfig
+  );
+  const canaryResult = context.advanceInstagramStoryPreparation_(
+    canaryJob,
+    'drive-file-123',
+    'video',
+    new Date(),
+    Date.now() + 60000,
+    canaryConfig
+  );
+
+  assert.equal(otherRowResult.completed, true);
+  assert.equal(otherRowResult.transformed, false);
+  assert.equal(otherRowJob.instagram.story, null);
+  assert.equal(canaryResult.completed, false);
+  assert.equal(canaryResult.transformed, true);
+  assert.equal(canaryJob.instagram.story.phase, 'submitted');
+  assert.equal(metadataReads, 1);
+});
+
 test('hibi検証関数は画像行3と横長動画行5を投稿なしで準備する', () => {
   const originalSetup = context.checkStoriesTransformSetup;
   const originalPrepare = context.prepareInstagramStoryFromSheetRow;
@@ -419,6 +464,38 @@ test('hibi検証関数は画像行3と横長動画行5を投稿なしで準備�
   } finally {
     context.checkStoriesTransformSetup = originalSetup;
     context.prepareInstagramStoryFromSheetRow = originalPrepare;
+  }
+});
+
+test('hibi行8カナリア関数は接続確認後にトリガーと対象行を設定する', () => {
+  const originalSetup = context.checkStoriesTransformSetup;
+  const originalCreateTrigger = context.createStoriesTransformTrigger;
+  const originalSetCanary = context.setStoriesTransformCanaryRow_;
+  const calls = [];
+  context.checkStoriesTransformSetup = () => {
+    calls.push('setup');
+  };
+  context.createStoriesTransformTrigger = () => {
+    calls.push('trigger');
+  };
+  context.setStoriesTransformCanaryRow_ = rowNumber => {
+    calls.push('canary:' + rowNumber);
+    return {
+      mode: 'canary',
+      enabled: true,
+      canaryRow: rowNumber,
+    };
+  };
+
+  try {
+    const result = context.startStoriesRow8CanaryForHibi();
+    assert.deepEqual(calls, ['setup', 'trigger', 'canary:8']);
+    assert.equal(result.mode, 'canary');
+    assert.equal(result.canaryRow, 8);
+  } finally {
+    context.checkStoriesTransformSetup = originalSetup;
+    context.createStoriesTransformTrigger = originalCreateTrigger;
+    context.setStoriesTransformCanaryRow_ = originalSetCanary;
   }
 });
 

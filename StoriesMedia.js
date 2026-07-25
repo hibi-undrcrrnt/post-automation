@@ -9,6 +9,7 @@ const STORY_TRANSFORM_DEFAULT_LEAD_MINUTES = 120;
 const STORY_TRANSFORM_DEFAULT_MAX_DELAY_MINUTES = 30;
 const STORY_TRANSFORM_MIN_URL_REMAINING_MS = 60 * 60 * 1000;
 const STORY_TRANSFORM_TRIGGER_MINUTES = 10;
+const STORY_TRANSFORM_HIBI_CANARY_ROW = 8;
 const STORY_TRANSFORM_WIDTH = 1080;
 const STORY_TRANSFORM_HEIGHT = 1920;
 
@@ -40,22 +41,29 @@ function getStoriesTransformConfig_(requireInfrastructureConfig) {
   const mode = configuredMode || (
     legacyEnabled ? 'enforce' : 'legacy'
   );
-  if (['legacy', 'enforce', 'pause'].indexOf(mode) === -1) {
+  if (['legacy', 'canary', 'enforce', 'pause'].indexOf(mode) === -1) {
     throw new Error(
-      'STORY_TRANSFORM_MODEはlegacy、enforce、pauseのいずれかで指定してください。'
+      'STORY_TRANSFORM_MODEはlegacy、canary、enforce、pauseの' +
+      'いずれかで指定してください。'
     );
   }
 
-  if (mode !== 'enforce' && !requireInfrastructureConfig) {
+  if (
+    mode !== 'canary' &&
+    mode !== 'enforce' &&
+    !requireInfrastructureConfig
+  ) {
     return {
       enabled: false,
       mode: mode,
+      canaryRow: null,
     };
   }
 
   const config = {
-    enabled: mode === 'enforce',
+    enabled: mode === 'canary' || mode === 'enforce',
     mode: mode,
+    canaryRow: null,
     projectId: String(
       props.getProperty('STORY_TRANSFORM_PROJECT_ID') || ''
     ).trim(),
@@ -86,6 +94,15 @@ function getStoriesTransformConfig_(requireInfrastructureConfig) {
       'STORY_TRANSFORM_MAX_DELAY_MINUTES'
     ),
   };
+  if (mode === 'canary') {
+    config.canaryRow = parseStoryTransformInteger_(
+      props.getProperty('STORY_TRANSFORM_CANARY_ROW'),
+      0,
+      2,
+      1000000,
+      'STORY_TRANSFORM_CANARY_ROW'
+    );
+  }
 
   const missing = [
     ['STORY_TRANSFORM_PROJECT_ID', config.projectId],
@@ -124,6 +141,14 @@ function isStoriesTransformEnabled_() {
   return getStoriesTransformConfig_().enabled;
 }
 
+function isStoriesTransformEnabledForRow_(config, rowNumber) {
+  if (!config.enabled) return false;
+  return (
+    config.mode !== 'canary' ||
+    Number(rowNumber) === config.canaryRow
+  );
+}
+
 function configureStoriesTransformForHibi() {
   PropertiesService.getScriptProperties().setProperties(
     {
@@ -143,9 +168,13 @@ function configureStoriesTransformForHibi() {
 
 function setStoriesTransformMode(mode) {
   const normalizedMode = String(mode || '').trim().toLowerCase();
-  if (['legacy', 'enforce', 'pause'].indexOf(normalizedMode) === -1) {
+  if (
+    ['legacy', 'canary', 'enforce', 'pause']
+      .indexOf(normalizedMode) === -1
+  ) {
     throw new Error(
-      'Stories変換モードはlegacy、enforce、pauseのいずれかで指定してください。'
+      'Stories変換モードはlegacy、canary、enforce、pauseの' +
+      'いずれかで指定してください。'
     );
   }
   PropertiesService
@@ -153,12 +182,36 @@ function setStoriesTransformMode(mode) {
     .setProperty('STORY_TRANSFORM_MODE', normalizedMode);
   return {
     mode: normalizedMode,
-    enabled: normalizedMode === 'enforce',
+    enabled:
+      normalizedMode === 'canary' ||
+      normalizedMode === 'enforce',
+  };
+}
+
+function setStoriesTransformCanaryRow_(rowNumber) {
+  const targetRow = validateDataRowNumber_(rowNumber);
+  PropertiesService.getScriptProperties().setProperties(
+    {
+      STORY_TRANSFORM_CANARY_ROW: String(targetRow),
+      STORY_TRANSFORM_MODE: 'canary',
+    },
+    false
+  );
+  return {
+    mode: 'canary',
+    enabled: true,
+    canaryRow: targetRow,
   };
 }
 
 function enableStoriesTransformForHibi() {
   return setStoriesTransformMode('enforce');
+}
+
+function startStoriesRow8CanaryForHibi() {
+  checkStoriesTransformSetup();
+  createStoriesTransformTrigger();
+  return setStoriesTransformCanaryRow_(STORY_TRANSFORM_HIBI_CANARY_ROW);
 }
 
 function pauseStoriesTransformForHibi() {
@@ -568,7 +621,7 @@ function advanceInstagramStoryPreparation_(
   if (config.mode === 'pause') {
     throw createStoriesPausedError_();
   }
-  if (!config.enabled) {
+  if (!isStoriesTransformEnabledForRow_(config, job.rowNumber)) {
     return {
       completed: true,
       mediaUrl: mediaUrl,
@@ -799,6 +852,9 @@ function prepareStoriesLocked_() {
     const mediaKind = video ? 'video' : 'image';
     const mediaUrl = video || image;
     const enabledTargets = getEnabledPostTargets_(row);
+    if (!isStoriesTransformEnabledForRow_(config, index + 1)) {
+      continue;
+    }
 
     try {
       const job = getOrCreateStoriesPreparationJob_(
@@ -826,9 +882,9 @@ function prepareStoriesLocked_() {
 function postPreparedInstagramStoryFromSheetRow(rowNumber) {
   const targetRow = validateDataRowNumber_(rowNumber);
   const config = getStoriesTransformConfig_();
-  if (!config.enabled) {
+  if (!isStoriesTransformEnabledForRow_(config, targetRow)) {
     throw new Error(
-      'STORY_TRANSFORM_MODE=enforceにしてから実行してください。'
+      'この行はStories変換の有効範囲ではありません。'
     );
   }
 
@@ -1007,6 +1063,7 @@ function checkStoriesTransformSetup() {
   return {
     enabled: config.enabled,
     mode: config.mode,
+    canaryRow: config.canaryRow,
     projectId: config.projectId,
     region: config.region,
     jobName: config.jobName,

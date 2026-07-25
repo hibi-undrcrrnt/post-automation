@@ -42,7 +42,7 @@ Cloudinaryを利用する場合は、後述の「Cloudinary代替案」の条件
 | Apps Script事前準備トリガー | 実装済み |
 | Apps Script状態保存・再開 | 実装済み |
 | 二重投稿防止用`published` / `unknown`管理 | 実装済み |
-| `legacy` / `enforce` / `pause`安全切替 | 実装済み |
+| `legacy` / `canary` / `enforce` / `pause`安全切替 | 実装済み |
 | 投稿なしの1行変換確認 | 実装済み |
 | 単体テスト | 実装済み |
 | GCPリソース作成 | `hibi-452314`へ作成済み |
@@ -78,10 +78,12 @@ Apps Scriptコードは本番プロジェクトへ反映済みだが、
 `legacy`として保存し、Cloud Run Jobとバケットの接続確認まで行う。
 有効化・緊急停止・従来動作への復帰は
 `setStoriesTransformMode('enforce' | 'pause' | 'legacy')`で明示的に行う。
+初回実投稿では`startStoriesRow8CanaryForHibi()`を使い、
+行8だけを変換対象とする`canary`モードと事前変換トリガーを同時に設定する。
+ほかの行はカナリア期間中も従来処理のままとなる。
 
 Apps Scriptは標準GCPプロジェクト`hibi-452314`へ接続済み。
-OAuth同意画面は外部・テストユーザー限定で初期設定済みである。
-定期トリガーを有効化する前に、OAuthの公開ステータスを本番へ変更する。
+OAuth同意画面は外部・本番公開済みである。
 
 ### 2.3 実ファイル検証結果
 
@@ -388,14 +390,14 @@ Script Propertiesへ保存する。
 
 ### Phase 5: 本番移行
 
-1. OAuth同意画面の公開ステータスを「本番」に変更
-2. 専用Drive入力フォルダをサービスアカウントへ閲覧共有
-3. `enableStoriesTransformForHibi()`で`enforce`へ切り替え
-4. `createStoriesTransformTrigger()`で10分間隔の事前変換を開始
-5. 本番で画像1件をカナリア投稿
-6. 本番で動画1件をカナリア投稿
-7. 24時間監視
-8. 全Stories投稿へ有効化
+1. OAuth同意画面の公開ステータスを「本番」に変更（完了）
+2. `startStoriesRow8CanaryForHibi()`で行8限定の`canary`へ切り替え、
+   10分間隔の事前変換を開始
+3. 本番で画像1件をカナリア投稿
+4. 専用Drive入力フォルダをサービスアカウントへ閲覧共有
+5. 本番で動画1件をカナリア投稿
+6. 24時間監視
+7. 全Stories投稿へ有効化
 
 最初の画像カナリア候補は、行8の
 2026-08-02 11:00 JST投稿である。行3でE2E検証したものと同じ画像で、
