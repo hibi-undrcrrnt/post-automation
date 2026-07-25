@@ -157,6 +157,18 @@ function setStoriesTransformMode(mode) {
   };
 }
 
+function enableStoriesTransformForHibi() {
+  return setStoriesTransformMode('enforce');
+}
+
+function pauseStoriesTransformForHibi() {
+  return setStoriesTransformMode('pause');
+}
+
+function useLegacyStoriesTransformForHibi() {
+  return setStoriesTransformMode('legacy');
+}
+
 function createStoriesPausedError_() {
   const error = new Error(
     'Instagram Stories投稿はSTORY_TRANSFORM_MODE=pauseにより停止中です。'

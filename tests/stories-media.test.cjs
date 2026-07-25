@@ -421,3 +421,21 @@ test('hibi検証関数は画像行3と横長動画行5を投稿なしで準備�
     context.prepareInstagramStoryFromSheetRow = originalPrepare;
   }
 });
+
+test('hibi運用関数はStoriesモードを明示値で切り替える', () => {
+  const originalSetMode = context.setStoriesTransformMode;
+  const modes = [];
+  context.setStoriesTransformMode = mode => {
+    modes.push(mode);
+    return { mode };
+  };
+
+  try {
+    assert.equal(context.enableStoriesTransformForHibi().mode, 'enforce');
+    assert.equal(context.pauseStoriesTransformForHibi().mode, 'pause');
+    assert.equal(context.useLegacyStoriesTransformForHibi().mode, 'legacy');
+    assert.deepEqual(modes, ['enforce', 'pause', 'legacy']);
+  } finally {
+    context.setStoriesTransformMode = originalSetMode;
+  }
+});

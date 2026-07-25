@@ -47,7 +47,7 @@ Cloudinaryを利用する場合は、後述の「Cloudinary代替案」の条件
 | 単体テスト | 実装済み |
 | GCPリソース作成 | `hibi-452314`へ作成済み |
 | Cloud Runデプロイ | デプロイ・実ファイル検証済み |
-| Apps Scriptデプロイ | コード反映済み・`legacy`、標準GCP切替待ち |
+| Apps Scriptデプロイ | 標準GCP接続・コード反映・E2E変換確認済み、`legacy` |
 | Instagram実投稿テスト | 未実施 |
 
 ### 2.2 GCP構築状況
@@ -79,6 +79,10 @@ Apps Scriptコードは本番プロジェクトへ反映済みだが、
 有効化・緊急停止・従来動作への復帰は
 `setStoriesTransformMode('enforce' | 'pause' | 'legacy')`で明示的に行う。
 
+Apps Scriptは標準GCPプロジェクト`hibi-452314`へ接続済み。
+OAuth同意画面は外部・テストユーザー限定で初期設定済みである。
+定期トリガーを有効化する前に、OAuthの公開ステータスを本番へ変更する。
+
 ### 2.3 実ファイル検証結果
 
 2026-07-25に投稿を伴わないCloud Run実行で確認済み。
@@ -95,6 +99,10 @@ Apps Scriptコードは本番プロジェクトへ反映済みだが、
 
 画像・動画とも署名URLを値を表示せず匿名Range GETし、
 HTTP 206と正しいContent-Typeを確認済み。
+
+Apps ScriptからCloud Run Jobを起動するE2E検証でも、
+行3の画像と行5の横長動画が`submitted`から`ready`へ遷移し、
+同じ出力条件と匿名取得を確認済み。
 
 主な実装ファイルは以下。
 
