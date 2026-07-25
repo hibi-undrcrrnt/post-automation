@@ -282,6 +282,32 @@ Apps Scriptエディタから次を実行する。
 - `inspectInstagramReelCanaryForHibi()`:
   外部処理を進めず、保存済み状態だけをログ出力
 
+## 7.3 行10 実投稿カナリア結果
+
+2026-07-25、行10を`REEL_TRANSFORM_MODE=canary`の対象として
+実際にReelsへ1件投稿した。
+
+| 確認項目 | 結果 |
+| --- | --- |
+| Cloud Run変換 | 成功 |
+| Metaコンテナ | `FINISHED`確認後に公開 |
+| Instagram公開 | 成功 |
+| シートstatus | `posted` |
+| error_log | 空欄 |
+| 横長映像 | クロップなしで全体表示 |
+| 音声 | 正常 |
+| caption | 正常 |
+| X / Stories誤投稿 | なし |
+
+行7は既存の`error`履歴として維持し、再投稿していない。
+これにより、変換、署名URL、非同期コンテナ準備、予約時刻公開、
+シート完了処理までの本番E2Eが合格した。
+
+次の切替候補は`enableInstagramReelTransformForHibi()`による
+`enforce`である。切替後に問題があれば、投稿を止める場合は
+`pauseInstagramReelTransformForHibi()`、従来経路へ戻す場合は
+`useLegacyInstagramReelTransformForHibi()`を使う。
+
 ## 8. 受け入れ条件
 
 - 行7のMOVからMeta処理可能なMP4を生成できる
