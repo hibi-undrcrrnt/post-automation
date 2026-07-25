@@ -211,7 +211,11 @@ function enableStoriesTransformForHibi() {
 function startStoriesRow8CanaryForHibi() {
   checkStoriesTransformSetup();
   createStoriesTransformTrigger();
-  return setStoriesTransformCanaryRow_(STORY_TRANSFORM_HIBI_CANARY_ROW);
+  const result = setStoriesTransformCanaryRow_(
+    STORY_TRANSFORM_HIBI_CANARY_ROW
+  );
+  Logger.log(JSON.stringify(result));
+  return result;
 }
 
 function pauseStoriesTransformForHibi() {
